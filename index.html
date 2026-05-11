@@ -539,13 +539,42 @@ function updateFiveM() {
 }
 
 // ── JSON parsing ───────────────────────────────────────────────────────────
-// Returns {data, prose} — prose is any text before the JSON (follow-up explanations)
+function repairJSON(str) {
+  // Close any unclosed arrays and objects to handle truncated responses
+  let s = str.trim();
+  // Remove trailing comma before attempting close
+  s = s.replace(/,\s*$/, '');
+  // Count unclosed braces and brackets
+  let braces = 0, brackets = 0;
+  let inString = false, escape = false;
+  for (const ch of s) {
+    if (escape) { escape = false; continue; }
+    if (ch === '\\' && inString) { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === '{') braces++;
+    else if (ch === '}') braces--;
+    else if (ch === '[') brackets++;
+    else if (ch === ']') brackets--;
+  }
+  // Close unclosed structures
+  while (brackets > 0) { s += ']'; brackets--; }
+  while (braces > 0) { s += '}'; braces--; }
+  return s;
+}
+
 function parseResponse(text) {
   const start = text.indexOf('{'), end = text.lastIndexOf('}');
-  if (start === -1 || end === -1) throw new Error('No JSON found in response');
+  if (start === -1) throw new Error('No JSON found in response');
   const prose = text.slice(0, start).trim();
-  const data = JSON.parse(text.slice(start, end+1));
-  return { data, prose };
+  let jsonStr = end !== -1 ? text.slice(start, end+1) : text.slice(start);
+  try {
+    return { data: JSON.parse(jsonStr), prose };
+  } catch(e) {
+    // Try repairing truncated JSON
+    const repaired = repairJSON(jsonStr);
+    return { data: JSON.parse(repaired), prose };
+  }
 }
 function parseJSON(text) { return parseResponse(text).data; }
 
@@ -626,7 +655,7 @@ async function callGemini(messages, key) {
     body:JSON.stringify({
       contents,
       systemInstruction:{parts:[{text:PROMPT_SYSTEM}]},
-      generationConfig:{maxOutputTokens:4000}
+      generationConfig:{maxOutputTokens:8000}
     })
   });
   const d = await r.json(); if (d.error) throw new Error(d.error.message);
