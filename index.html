@@ -246,11 +246,23 @@ table.macro-full { width: 100%; border-collapse: collapse; font-size: 11px; }
     <!-- Follow-up -->
     <div class="followup-section" id="followup-section" style="display:none;">
       <div class="label" style="margin-top:16px;">Follow-up / clarification</div>
+
+      <!-- Follow-up photo strip -->
+      <div id="fu-photo-strip" style="display:none;margin-bottom:8px;">
+        <div class="photo-grid" id="fu-photo-grid" style="grid-template-columns:repeat(5,1fr);gap:4px;"></div>
+      </div>
+
       <div class="followup-row">
-        <textarea class="followup-input" id="followup-input" placeholder="e.g. actually the salmon was 8oz, the rice was white not brown…" rows="1"></textarea>
+        <textarea class="followup-input" id="followup-input" placeholder="add a note, correction, or just attach a photo…" rows="1"></textarea>
         <button class="followup-send" id="followup-send" onclick="sendFollowup()">send →</button>
       </div>
-      <div style="margin-top:10px;display:flex;gap:8px;">
+
+      <!-- Photo + send log row -->
+      <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
+        <label style="background:var(--surface2);border:1px solid var(--border2);color:var(--dim);font-family:var(--font-mono);font-size:11px;border-radius:var(--rs);padding:6px 12px;cursor:pointer;-webkit-tap-highlight-color:transparent;">
+          📷 add photo
+          <input type="file" accept="image/*" multiple id="fu-img-input" onchange="handleFollowupImages(event)" style="display:none;">
+        </label>
         <button class="new-meal-btn" id="send-log-btn2" onclick="sendLogManual()" style="display:none;font-size:12px;padding:7px 12px;">✉ send log</button>
       </div>
     </div>
@@ -299,6 +311,7 @@ const PROMPT_FOLLOWUP      = `Update your macro estimate based on this correctio
 
 // ── State ──────────────────────────────────────────────────────────────────
 let photos = []; // [{b64, mime, thumb}]
+let followupPhotos = []; // [{b64, mime, thumb}] — cleared after each followup send
 let results = {}; // {claude: {items, total}, ...}
 let rawResponses = {}; // {claude: [{turn, text}], ...}
 let histories = { claude:[], openai:[], gemini:[], grok:[] }; // multi-turn per AI
@@ -473,10 +486,30 @@ function updateFiveM() {
 
   const pluck=(key,fn)=>fn(...data.map(r=>r.total[key]));
   const plus={cal:pluck('cal',Math.max),pro:pluck('pro',Math.min),carb:pluck('carb',Math.max),fat:pluck('fat',Math.max),satfat:pluck('satfat',Math.max),fiber:pluck('fiber',Math.min)};
+
+  // Find which AI contributed each 5m+ value
+  function sourceOf(key, fn) {
+    const val = fn(...data.map(r=>r.total[key]));
+    const srcId = done.find(k => results[k].total[key] === val);
+    return srcId ? AI_CONFIGS[srcId].label : '';
+  }
+  const plusSrc = {
+    cal:    sourceOf('cal',    Math.max),
+    pro:    sourceOf('pro',    Math.min),
+    carb:   sourceOf('carb',   Math.max),
+    fat:    sourceOf('fat',    Math.max),
+    satfat: sourceOf('satfat', Math.max),
+    fiber:  sourceOf('fiber',  Math.min),
+  };
+
   document.getElementById('fivem-plus-grid').innerHTML =
-    [['cal',plus.cal+' kcal',false],['protein',plus.pro+'g',true],['carbs',plus.carb+'g',false],
-     ['fat',plus.fat+'g',false],['sat fat',plus.satfat+'g',false],['fiber',plus.fiber+'g',true]]
-    .map(([l,v,w])=>`<div class="stat-block"><div class="stat-n${w?' stat-warn':''}">${v}</div><div class="stat-l">${l}</div></div>`).join('');
+    [['cal',plus.cal+' kcal',false,'cal'],['protein',plus.pro+'g',true,'pro'],['carbs',plus.carb+'g',false,'carb'],
+     ['fat',plus.fat+'g',false,'fat'],['sat fat',plus.satfat+'g',false,'satfat'],['fiber',plus.fiber+'g',true,'fiber']]
+    .map(([l,v,w,k])=>`<div class="stat-block">
+      <div class="stat-n${w?' stat-warn':''}">${v}</div>
+      <div class="stat-l">${l}</div>
+      <div style="font-size:9px;color:var(--dim);margin-top:2px;opacity:0.7;">${plusSrc[k]}</div>
+    </div>`).join('');
 
   // Source pills with each AI's calorie contribution
   document.getElementById('source-pills').innerHTML = done.map(k=>{
@@ -653,27 +686,97 @@ async function runAI(id, userContent, isFollowup) {
 
     } else {
       const meal = document.getElementById('meal').value.trim();
-      const textContent = isFollowup ? userContent : PROMPT_INITIAL_TEXT + meal;
       let rawText;
 
-      if (id === 'gemini') {
-        histories.gemini.push({role:'user', content:[{text: textContent}]});
-        rawText = await callGemini(histories.gemini, key);
-        histories.gemini.push({role:'assistant', content: rawText});
-      } else {
-        const hist = histories[id];
-        hist.push({role:'user', content: textContent});
-        if (id==='claude') rawText = await callClaude(hist, key);
-        else if (id==='openai') rawText = await callOpenAI(hist, key);
-        else if (id==='grok') rawText = await callGrok(hist, key, false);
-        hist.push({role:'assistant', content: rawText});
-      }
+      if (isFollowup) {
+        // userContent is {text, photos} for followups
+        const fuText = userContent.text || '';
+        const fuPhotos = userContent.photos || [];
+        const promptText = PROMPT_FOLLOWUP + (fuText || '(see attached photo)');
 
-      const { data, prose } = parseResponse(rawText);
-      finalResult = data;
-      finalProse = prose;
-      if (!rawResponses[id]) rawResponses[id] = [];
-      rawResponses[id].push({ turn: turnNum, data, prose });
+        if (fuPhotos.length > 0) {
+          // Send with images — use vision path
+          const batches = [];
+          for (let i = 0; i < fuPhotos.length; i += BATCH_SIZE) batches.push(fuPhotos.slice(i, i+BATCH_SIZE));
+          let batchResult = null;
+
+          for (let bi = 0; bi < batches.length; bi++) {
+            const batch = batches[bi];
+            const batchPrompt = bi === 0 ? promptText : `(Additional follow-up photos, same correction as before. Merge into your updated estimate.)`;
+            let bRaw;
+
+            if (id === 'claude') {
+              const content = buildImageParts_Claude(batch, batchPrompt.replace(PROMPT_FOLLOWUP,''), true);
+              // Override: use batchPrompt as the text part directly
+              const imgParts = batch.map(p=>({type:'image',source:{type:'base64',media_type:p.mime,data:p.b64}}));
+              const msgContent = [...imgParts, {type:'text', text: batchPrompt}];
+              histories.claude.push({role:'user', content: msgContent});
+              bRaw = await callClaude(histories.claude, key);
+              histories.claude.push({role:'assistant', content: bRaw});
+            } else if (id === 'openai') {
+              const imgParts = batch.map(p=>({type:'image_url',image_url:{url:`data:${p.mime};base64,${p.b64}`}}));
+              histories.openai.push({role:'user', content:[...imgParts,{type:'text',text:batchPrompt}]});
+              bRaw = await callOpenAI(histories.openai, key);
+              histories.openai.push({role:'assistant', content: bRaw});
+            } else if (id === 'gemini') {
+              const imgParts = batch.map(p=>({inline_data:{mime_type:p.mime,data:p.b64}}));
+              histories.gemini.push({role:'user', content:[...imgParts,{text:batchPrompt}]});
+              bRaw = await callGemini(histories.gemini, key);
+              histories.gemini.push({role:'assistant', content: bRaw});
+            } else if (id === 'grok') {
+              const imgParts = batch.map(p=>({type:'image_url',image_url:{url:`data:${p.mime};base64,${p.b64}`}}));
+              histories.grok.push({role:'user', content:[...imgParts,{type:'text',text:batchPrompt}]});
+              bRaw = await callGrok(histories.grok, key, true);
+              histories.grok.push({role:'assistant', content: bRaw});
+            }
+            const { data: bd, prose: bp } = parseResponse(bRaw);
+            batchResult = mergeResults(batchResult, bd);
+            if (!rawResponses[id]) rawResponses[id] = [];
+            rawResponses[id].push({ turn: turnNum, data: bd, prose: bp });
+          }
+          finalResult = batchResult;
+          finalProse = (rawResponses[id]||[]).slice(-1)[0]?.prose || '';
+        } else {
+          // Text-only followup
+          const textContent = promptText;
+          if (id === 'gemini') {
+            histories.gemini.push({role:'user', content:[{text: textContent}]});
+            rawText = await callGemini(histories.gemini, key);
+            histories.gemini.push({role:'assistant', content: rawText});
+          } else {
+            const hist = histories[id];
+            hist.push({role:'user', content: textContent});
+            if (id==='claude') rawText = await callClaude(hist, key);
+            else if (id==='openai') rawText = await callOpenAI(hist, key);
+            else if (id==='grok') rawText = await callGrok(hist, key, false);
+            hist.push({role:'assistant', content: rawText});
+          }
+          const { data, prose } = parseResponse(rawText);
+          finalResult = data;
+          finalProse = prose;
+          if (!rawResponses[id]) rawResponses[id] = [];
+          rawResponses[id].push({ turn: turnNum, data, prose });
+        }
+      } else {
+        const textContent = PROMPT_INITIAL_TEXT + meal;
+        if (id === 'gemini') {
+          histories.gemini.push({role:'user', content:[{text: textContent}]});
+          rawText = await callGemini(histories.gemini, key);
+          histories.gemini.push({role:'assistant', content: rawText});
+        } else {
+          const hist = histories[id];
+          hist.push({role:'user', content: textContent});
+          if (id==='claude') rawText = await callClaude(hist, key);
+          else if (id==='openai') rawText = await callOpenAI(hist, key);
+          else if (id==='grok') rawText = await callGrok(hist, key, false);
+          hist.push({role:'assistant', content: rawText});
+        }
+        const { data, prose } = parseResponse(rawText);
+        finalResult = data;
+        finalProse = prose;
+        if (!rawResponses[id]) rawResponses[id] = [];
+        rawResponses[id].push({ turn: turnNum, data, prose });
+      }
     }
 
     results[id] = finalResult;
@@ -718,18 +821,56 @@ async function runAll() {
   document.getElementById('followup-input').focus();
 }
 
+// ── Follow-up image handling ────────────────────────────────────────────────
+async function handleFollowupImages(e) {
+  const files = Array.from(e.target.files);
+  const remaining = 10 - followupPhotos.length;
+  if (remaining <= 0) { showToast('Max 10 photos per follow-up'); return; }
+  const toAdd = files.slice(0, remaining);
+  if (files.length > remaining) showToast(`Added ${remaining} of ${files.length}`);
+  const processed = await Promise.all(toAdd.map(f => resizeImage(f)));
+  followupPhotos.push(...processed);
+  renderFollowupPhotoGrid();
+  document.getElementById('fu-img-input').value = '';
+}
+
+function removeFollowupPhoto(i) {
+  followupPhotos.splice(i, 1);
+  renderFollowupPhotoGrid();
+}
+
+function renderFollowupPhotoGrid() {
+  const grid = document.getElementById('fu-photo-grid');
+  const strip = document.getElementById('fu-photo-strip');
+  grid.innerHTML = '';
+  if (followupPhotos.length === 0) { strip.style.display = 'none'; return; }
+  strip.style.display = 'block';
+  followupPhotos.forEach((p, i) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'photo-thumb-wrap';
+    wrap.innerHTML = `<img class="photo-thumb" src="${p.thumb}"><button class="photo-thumb-remove" onclick="removeFollowupPhoto(${i})">✕</button>`;
+    grid.appendChild(wrap);
+  });
+}
+
 // ── Follow-up ──────────────────────────────────────────────────────────────
 async function sendFollowup() {
   const input = document.getElementById('followup-input');
   const text = input.value.trim();
-  if (!text) return;
+  const hasFuPhotos = followupPhotos.length > 0;
+
+  if (!text && !hasFuPhotos) { showToast('Add a note or a photo'); return; }
 
   input.value = '';
   document.getElementById('followup-send').disabled = true;
 
-  // PROMPT_FOLLOWUP prefix is applied inside runAI via userContent
+  // Snapshot photos then clear UI immediately
+  const photoSnapshot = [...followupPhotos];
+  followupPhotos = [];
+  renderFollowupPhotoGrid();
+
   const activeIds = Object.keys(AI_CONFIGS).filter(id=>getKey(id));
-  await Promise.allSettled(activeIds.map(id => runAI(id, PROMPT_FOLLOWUP + text, true)));
+  await Promise.allSettled(activeIds.map(id => runAI(id, {text, photos: photoSnapshot}, true)));
 
   document.getElementById('followup-send').disabled = false;
 }
@@ -875,7 +1016,9 @@ async function newMeal() {
   histories = {claude:[],openai:[],gemini:[],grok:[]};
   sessionActive = false;
   photos = [];
+  followupPhotos = [];
   renderPhotoGrid();
+  renderFollowupPhotoGrid();
   document.getElementById('meal').value = '';
   document.getElementById('cards-section').style.display = 'none';
   document.getElementById('fivem-section').classList.remove('visible');
