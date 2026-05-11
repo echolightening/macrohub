@@ -491,7 +491,7 @@ function updateFiveM() {
   function sourceOf(key, fn) {
     const val = fn(...data.map(r=>r.total[key]));
     const srcId = done.find(k => results[k].total[key] === val);
-    return srcId ? AI_CONFIGS[srcId].label : '';
+    return srcId ? { label: AI_CONFIGS[srcId].label, color: AI_CONFIGS[srcId].color } : { label: '', color: 'var(--dim)' };
   }
   const plusSrc = {
     cal:    sourceOf('cal',    Math.max),
@@ -508,7 +508,7 @@ function updateFiveM() {
     .map(([l,v,w,k])=>`<div class="stat-block">
       <div class="stat-n${w?' stat-warn':''}">${v}</div>
       <div class="stat-l">${l}</div>
-      <div style="font-size:9px;color:var(--dim);margin-top:2px;opacity:0.7;">${plusSrc[k]}</div>
+      <div style="font-size:9px;color:${plusSrc[k].color};margin-top:2px;letter-spacing:0.04em;">${plusSrc[k].label}</div>
     </div>`).join('');
 
   // Source pills with each AI's calorie contribution
