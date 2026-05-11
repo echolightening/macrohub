@@ -179,7 +179,8 @@ table.macro-full { width: 100%; border-collapse: collapse; font-size: 11px; }
   <header>
     <h1>MacroHub</h1>
     <span class="sub">4 AI · parallel</span>
-    <div class="header-right">
+    <div class="header-right" style="display:flex;gap:8px;">
+      <button class="new-meal-btn" id="send-log-btn" onclick="sendLogManual()" style="display:none;">✉ send log</button>
       <button class="new-meal-btn" onclick="newMeal()">↺ new meal</button>
     </div>
   </header>
@@ -572,7 +573,11 @@ async function callGemini(messages, key) {
   const contents = toGeminiContents(messages);
   const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
     method:'POST', headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({contents,systemInstruction:{parts:[{text:PROMPT_SYSTEM}]},generationConfig:{maxOutputTokens:1500}})
+    body:JSON.stringify({
+      contents,
+      systemInstruction:{parts:[{text:PROMPT_SYSTEM}]},
+      generationConfig:{maxOutputTokens:1500, thinkingConfig:{thinkingBudget:0}}
+    })
   });
   const d = await r.json(); if (d.error) throw new Error(d.error.message);
   return d.candidates[0].content.parts[0].text;
@@ -704,6 +709,7 @@ async function runAll() {
   await Promise.allSettled(activeIds.map(id => runAI(id, null, false)));
 
   document.getElementById('run-btn').disabled = false;
+  document.getElementById('send-log-btn').style.display = 'inline-block';
   document.getElementById('followup-section').style.display = 'block';
   document.getElementById('followup-input').focus();
 }
@@ -818,6 +824,15 @@ function buildEmailSummary() {
   };
 }
 
+async function sendLogManual() {
+  const btn = document.getElementById('send-log-btn');
+  btn.textContent = '✉ sending…';
+  btn.disabled = true;
+  await sendMealEmail();
+  btn.textContent = '✉ send log';
+  btn.disabled = false;
+}
+
 async function sendMealEmail() {
   const pub = getKey('ejs-pub');
   const svc = getKey('ejs-svc');
@@ -864,6 +879,7 @@ async function newMeal() {
     document.getElementById('content-'+id).innerHTML = '<span class="waiting">—</span>';
     document.getElementById('spin-'+id).style.display='none';
   });
+  document.getElementById('send-log-btn').style.display = 'none';
   document.getElementById('meal').focus();
 }
 
