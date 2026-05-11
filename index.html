@@ -258,11 +258,12 @@ table.macro-full { width: 100%; border-collapse: collapse; font-size: 11px; }
       </div>
 
       <!-- Photo + send log row -->
-      <div style="margin-top:8px;display:flex;gap:8px;align-items:center;">
+      <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <label style="background:var(--surface2);border:1px solid var(--border2);color:var(--dim);font-family:var(--font-mono);font-size:11px;border-radius:var(--rs);padding:6px 12px;cursor:pointer;-webkit-tap-highlight-color:transparent;">
           📷 add photo
           <input type="file" accept="image/*" multiple id="fu-img-input" onchange="handleFollowupImages(event)" style="display:none;">
         </label>
+        <button class="new-meal-btn" id="nourish-btn" onclick="generateNourish()" style="display:none;font-size:12px;padding:7px 12px;">🥗 copy for Nourish</button>
         <button class="new-meal-btn" id="send-log-btn2" onclick="sendLogManual()" style="display:none;font-size:12px;padding:7px 12px;">✉ send log</button>
       </div>
     </div>
@@ -284,6 +285,19 @@ table.macro-full { width: 100%; border-collapse: collapse; font-size: 11px; }
   <div class="full-results" id="full-results">
     <div class="label">Full tables</div>
     <div id="full-cards"></div>
+  </div>
+
+  <!-- Nourish summary -->
+  <div id="nourish-section" style="display:none;margin-top:24px;">
+    <div class="label">Nourish summary</div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--surface2);">
+        <span style="font-size:11px;color:var(--muted);">ready to paste into Nourish</span>
+        <button onclick="copyNourish()" id="nourish-copy-btn" style="background:var(--accent);color:#0a0a0a;border:none;border-radius:var(--rs);padding:6px 14px;font-family:var(--font-mono);font-size:11px;font-weight:500;cursor:pointer;-webkit-tap-highlight-color:transparent;">copy</button>
+      </div>
+      <div id="nourish-output" style="padding:14px;font-size:13px;line-height:1.7;color:var(--text);white-space:pre-wrap;"></div>
+    </div>
+    <button onclick="generateNourish()" id="nourish-regen-btn" style="margin-top:8px;background:none;border:1px solid var(--border2);color:var(--dim);font-family:var(--font-mono);font-size:11px;border-radius:var(--rs);padding:6px 14px;cursor:pointer;-webkit-tap-highlight-color:transparent;">↺ regenerate</button>
   </div>
 
 </div>
@@ -817,6 +831,7 @@ async function runAll() {
   document.getElementById('run-btn').disabled = false;
   document.getElementById('send-log-btn').style.display = 'inline-block';
   document.getElementById('send-log-btn2').style.display = 'inline-block';
+  document.getElementById('nourish-btn').style.display = 'inline-block';
   document.getElementById('followup-section').style.display = 'block';
   document.getElementById('followup-input').focus();
 }
@@ -1005,6 +1020,123 @@ async function sendMealEmail() {
   }
 }
 
+// ── Nourish summary ────────────────────────────────────────────────────────
+async function generateNourish() {
+  const claudeKey = getKey('claude');
+  if (!claudeKey) { showToast('Claude API key needed for Nourish summary'); return; }
+
+  const aiIds = Object.keys(results).filter(k => results[k] && results[k].total);
+  if (!aiIds.length) { showToast('Run an estimate first'); return; }
+
+  const btn = document.getElementById('nourish-btn');
+  const regenBtn = document.getElementById('nourish-regen-btn');
+  const output = document.getElementById('nourish-output');
+  const section = document.getElementById('nourish-section');
+
+  btn.textContent = '⏳ generating…';
+  btn.disabled = true;
+  regenBtn.disabled = true;
+  output.textContent = 'Synthesizing…';
+  section.style.display = 'block';
+  section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  // Build a comprehensive data dump of all sessions
+  const mealDesc = document.getElementById('meal').value.trim();
+
+  // Collect all unique items across all AIs, weighted by frequency
+  const allItems = {};
+  aiIds.forEach(id => {
+    (results[id].items || []).forEach(item => {
+      const key = item.name.toLowerCase().replace(/\s+/g, ' ').trim();
+      if (!allItems[key]) allItems[key] = { name: item.name, estimates: [] };
+      allItems[key].estimates.push(item);
+    });
+  });
+
+  // Build consensus items — average across AIs that mentioned each item
+  const consensusItems = Object.values(allItems).map(entry => {
+    const avg = (field) => Math.round(entry.estimates.reduce((s,e) => s + (e[field]||0), 0) / entry.estimates.length);
+    return { name: entry.name, cal: avg('cal'), pro: avg('pro'), carb: avg('carb'), fat: avg('fat'), satfat: avg('satfat'), fiber: avg('fiber') };
+  }).sort((a,b) => b.cal - a.cal);
+
+  // 5m+ values — max for cal/carb/fat/satfat, min for pro/fiber
+  const pluck = (field, fn) => fn(...aiIds.map(k => results[k].total[field]));
+  const fivemPlus = {
+    cal:    pluck('cal',    Math.max),
+    pro:    pluck('pro',    Math.min),
+    carb:   pluck('carb',   Math.max),
+    fat:    pluck('fat',    Math.max),
+    satfat: pluck('satfat', Math.max),
+    fiber:  pluck('fiber',  Math.min),
+  };
+
+  // Follow-up prose log
+  const followupNotes = aiIds.map(id => {
+    const turns = (rawResponses[id]||[]).filter(r => r.prose);
+    if (!turns.length) return '';
+    return turns.map(r => r.prose).join(' ');
+  }).filter(Boolean).join(' ');
+
+  const dataPrompt = `You are a nutrition logger. Based on the meal data below, write a clean, human-readable summary that can be pasted into the Nourish app food diary. 
+
+FORMAT RULES:
+- Start with a 1-sentence meal description
+- List each food item on its own line like: "Item name — Xcal, Xg protein, Xg carbs, Xg fat, Xg sat fat, Xg fiber"
+- End with a TOTALS line using the consensus mean values
+- Use plain text only, no markdown, no asterisks, no headers
+- Be concise — this is for a food diary entry, not a report
+
+MEAL: ${mealDesc || '(no description — from photos)'}
+
+CONSENSUS ITEMS (averaged across ${aiIds.length} AIs):
+${consensusItems.map(i => `${i.name}: ${i.cal}cal, ${i.pro}g pro, ${i.carb}g carb, ${i.fat}g fat, ${i.satfat}g sat fat, ${i.fiber}g fiber`).join('\n')}
+
+MEAN TOTALS (5m+ conservative ceiling — max cal/carb/fat/sat fat, min protein/fiber across ${aiIds.length} AIs): ${fivemPlus.cal}cal | ${fivemPlus.pro}g protein | ${fivemPlus.carb}g carbs | ${fivemPlus.fat}g fat | ${fivemPlus.satfat}g sat fat | ${fivemPlus.fiber}g fiber
+
+Use these 5m+ values as the TOTALS line — do not average or recalculate.
+
+${followupNotes ? 'CORRECTIONS/NOTES FROM SESSION: ' + followupNotes : ''}
+
+Write the Nourish diary entry now:`;
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': claudeKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-opus-4-5-20251101',
+        max_tokens: 800,
+        messages: [{ role: 'user', content: dataPrompt }]
+      })
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message);
+    const text = data.content[0].text.trim();
+    output.textContent = text;
+  } catch(e) {
+    output.textContent = 'Error: ' + e.message;
+  }
+
+  btn.textContent = '🥗 copy for Nourish';
+  btn.disabled = false;
+  regenBtn.disabled = false;
+}
+
+function copyNourish() {
+  const text = document.getElementById('nourish-output').textContent;
+  if (!text || text === 'Synthesizing…') return;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('nourish-copy-btn');
+    btn.textContent = 'copied ✓';
+    setTimeout(() => btn.textContent = 'copy', 2000);
+  });
+}
+
 // ── New meal ───────────────────────────────────────────────────────────────
 async function newMeal() {
   // Send summary email before clearing if there are results
@@ -1031,6 +1163,9 @@ async function newMeal() {
   });
   document.getElementById('send-log-btn').style.display = 'none';
   document.getElementById('send-log-btn2').style.display = 'none';
+  document.getElementById('nourish-btn').style.display = 'none';
+  document.getElementById('nourish-section').style.display = 'none';
+  document.getElementById('nourish-output').textContent = '';
   document.getElementById('meal').focus();
 }
 
