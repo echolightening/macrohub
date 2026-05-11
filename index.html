@@ -250,6 +250,9 @@ table.macro-full { width: 100%; border-collapse: collapse; font-size: 11px; }
         <textarea class="followup-input" id="followup-input" placeholder="e.g. actually the salmon was 8oz, the rice was white not brown…" rows="1"></textarea>
         <button class="followup-send" id="followup-send" onclick="sendFollowup()">send →</button>
       </div>
+      <div style="margin-top:10px;display:flex;gap:8px;">
+        <button class="new-meal-btn" id="send-log-btn2" onclick="sendLogManual()" style="display:none;font-size:12px;padding:7px 12px;">✉ send log</button>
+      </div>
     </div>
   </div>
 
@@ -576,7 +579,7 @@ async function callGemini(messages, key) {
     body:JSON.stringify({
       contents,
       systemInstruction:{parts:[{text:PROMPT_SYSTEM}]},
-      generationConfig:{maxOutputTokens:1500, thinkingConfig:{thinkingBudget:0}}
+      generationConfig:{maxOutputTokens:4000}
     })
   });
   const d = await r.json(); if (d.error) throw new Error(d.error.message);
@@ -710,6 +713,7 @@ async function runAll() {
 
   document.getElementById('run-btn').disabled = false;
   document.getElementById('send-log-btn').style.display = 'inline-block';
+  document.getElementById('send-log-btn2').style.display = 'inline-block';
   document.getElementById('followup-section').style.display = 'block';
   document.getElementById('followup-input').focus();
 }
@@ -825,12 +829,15 @@ function buildEmailSummary() {
 }
 
 async function sendLogManual() {
-  const btn = document.getElementById('send-log-btn');
-  btn.textContent = '✉ sending…';
-  btn.disabled = true;
+  ['send-log-btn','send-log-btn2'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) { btn.textContent = '✉ sending…'; btn.disabled = true; }
+  });
   await sendMealEmail();
-  btn.textContent = '✉ send log';
-  btn.disabled = false;
+  ['send-log-btn','send-log-btn2'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) { btn.textContent = '✉ send log'; btn.disabled = false; }
+  });
 }
 
 async function sendMealEmail() {
@@ -880,6 +887,7 @@ async function newMeal() {
     document.getElementById('spin-'+id).style.display='none';
   });
   document.getElementById('send-log-btn').style.display = 'none';
+  document.getElementById('send-log-btn2').style.display = 'none';
   document.getElementById('meal').focus();
 }
 
