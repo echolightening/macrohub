@@ -296,10 +296,10 @@ const BATCH_SIZE = 10; // max per API call (GPT-4o limit)
 const RESIZE_MAX = 1500; // px — keeps Claude happy on dimension limit
 
 const AI_CONFIGS = {
-  claude: { label:'Claude',  color:'var(--claude)' },
-  openai: { label:'GPT-4o', color:'var(--openai)' },
-  gemini: { label:'Gemini', color:'var(--gemini)' },
-  grok:   { label:'Grok',   color:'var(--grok)'   },
+  claude: { label:'Claude',  color:'#d4956a' },
+  openai: { label:'GPT-4o', color:'#74c99a' },
+  gemini: { label:'Gemini', color:'#7eb8f7' },
+  grok:   { label:'Grok',   color:'#c4b5f7' },
 };
 
 const PROMPT_SYSTEM = `You are a precise macro estimator. Use realistic restaurant portions. Be precise, not conservative.`;
@@ -607,7 +607,7 @@ function toGeminiContents(messages) {
 }
 async function callGemini(messages, key) {
   const contents = toGeminiContents(messages);
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${key}`, {
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${key}`, {
     method:'POST', headers:{'Content-Type':'application/json'},
     body:JSON.stringify({
       contents,
