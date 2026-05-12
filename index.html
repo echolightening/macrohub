@@ -1,0 +1,1188 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="MacroHub">
+<meta name="theme-color" content="#0a0a0a">
+<title>MacroHub</title>
+<script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --bg: #0a0a0a; --surface: #141414; --surface2: #1e1e1e;
+  --border: rgba(255,255,255,0.08); --border2: rgba(255,255,255,0.15);
+  --text: #f0ede8; --muted: #888; --dim: #555;
+  --accent: #c8f55a; --warn: #f4a460; --danger: #ff6060;
+  --claude: #d4956a; --openai: #74c99a; --gemini: #7eb8f7; --grok: #c4b5f7;
+  --r: 12px; --rs: 8px;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bottom: env(safe-area-inset-bottom, 0px);
+  --font-mono: ui-monospace, 'SF Mono', 'Courier New', monospace;
+  --font-serif: ui-serif, Georgia, serif;
+}
+html, body { height: 100%; background: var(--bg); color: var(--text); font-family: var(--font-mono); -webkit-font-smoothing: antialiased; overflow-x: hidden; }
+.app { min-height: 100vh; padding: calc(var(--safe-top) + 20px) 18px calc(var(--safe-bottom) + 40px); max-width: 480px; margin: 0 auto; }
+
+header { display: flex; align-items: baseline; gap: 10px; margin-bottom: 24px; padding-top: 8px; }
+header h1 { font-family: var(--font-serif); font-size: 28px; font-weight: 600; letter-spacing: -0.5px; }
+header .sub { font-size: 11px; color: var(--dim); letter-spacing: 0.06em; text-transform: uppercase; }
+.header-right { margin-left: auto; }
+.new-meal-btn { background: none; border: 1px solid var(--border2); color: var(--dim); font-family: var(--font-mono); font-size: 11px; border-radius: var(--rs); padding: 5px 10px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+.new-meal-btn:active { opacity: 0.6; }
+
+.label { font-size: 10px; letter-spacing: 0.1em; text-transform: uppercase; color: var(--dim); margin-bottom: 8px; }
+.divider { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+
+/* Settings */
+.settings-toggle { background: none; border: none; color: var(--dim); font-family: var(--font-mono); font-size: 11px; cursor: pointer; padding: 4px 0; text-decoration: underline; text-underline-offset: 3px; -webkit-tap-highlight-color: transparent; }
+.settings-panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 16px; margin-top: 10px; display: none; }
+.settings-panel.open { display: block; }
+.key-row { margin-bottom: 12px; }
+.key-row label { display: block; font-size: 10px; color: var(--dim); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 5px; }
+.key-row input { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--rs); padding: 10px 12px; color: var(--text); font-family: var(--font-mono); font-size: 12px; -webkit-appearance: none; }
+.key-row input:focus { outline: none; border-color: var(--border2); }
+.key-row input::placeholder { color: var(--dim); }
+.save-btn { background: var(--surface2); border: 1px solid var(--border2); color: var(--text); border-radius: var(--rs); padding: 10px 18px; font-family: var(--font-mono); font-size: 12px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
+
+/* Text input */
+textarea {
+  width: 100%; min-height: 100px; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 14px; color: var(--text); font-family: var(--font-mono);
+  font-size: 13px; line-height: 1.6; resize: vertical; transition: border-color 0.2s; -webkit-appearance: none;
+}
+textarea:focus { outline: none; border-color: var(--border2); }
+textarea::placeholder { color: var(--dim); }
+
+/* Photo grid */
+.photo-row { margin-top: 10px; }
+.photo-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 6px; margin-bottom: 8px; }
+.photo-thumb-wrap { position: relative; aspect-ratio: 1; border-radius: var(--rs); overflow: hidden; }
+.photo-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
+.photo-thumb-remove {
+  position: absolute; top: 3px; right: 3px; width: 18px; height: 18px;
+  background: rgba(0,0,0,0.7); border: none; border-radius: 50%;
+  color: white; font-size: 10px; cursor: pointer; display: flex;
+  align-items: center; justify-content: center; line-height: 1;
+  -webkit-tap-highlight-color: transparent;
+}
+.add-photo-btn {
+  aspect-ratio: 1; border-radius: var(--rs); border: 1.5px dashed var(--border2);
+  background: none; cursor: pointer; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 4px;
+  color: var(--dim); font-size: 10px; font-family: var(--font-mono);
+  -webkit-tap-highlight-color: transparent; position: relative; overflow: hidden;
+}
+.add-photo-btn input[type=file] { position: absolute; inset: 0; opacity: 0; cursor: pointer; font-size: 100px; }
+.add-photo-btn:active { border-color: var(--accent); }
+.add-photo-btn .cam-icon { font-size: 20px; }
+.photo-count { font-size: 10px; color: var(--dim); margin-bottom: 6px; }
+
+/* Buttons */
+.run-btn { width: 100%; margin-top: 14px; background: var(--accent); color: #0a0a0a; border: none; border-radius: var(--r); padding: 16px; font-family: var(--font-mono); font-size: 14px; font-weight: 500; cursor: pointer; letter-spacing: 0.04em; transition: opacity 0.15s, transform 0.1s; -webkit-tap-highlight-color: transparent; }
+.run-btn:active { transform: scale(0.98); opacity: 0.85; }
+.run-btn:disabled { opacity: 0.4; cursor: default; }
+
+/* AI cards */
+.section { margin-top: 24px; }
+.ai-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.ai-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 14px; transition: border-color 0.3s; min-height: 150px; }
+.ai-card.loading { border-color: var(--border2); }
+.ai-card.done    { border-color: var(--border2); }
+.ai-card.error   { border-color: rgba(255,80,80,0.3); }
+.ai-card-header  { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.ai-dot  { width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; }
+.ai-name { font-size: 11px; font-weight: 500; letter-spacing: 0.06em; text-transform: uppercase; }
+.dot-claude { background: var(--claude); } .name-claude { color: var(--claude); }
+.dot-openai { background: var(--openai); } .name-openai { color: var(--openai); }
+.dot-gemini { background: var(--gemini); } .name-gemini { color: var(--gemini); }
+.dot-grok   { background: var(--grok);   } .name-grok   { color: var(--grok);   }
+.ai-turn { font-size: 9px; color: var(--dim); margin-left: auto; letter-spacing: 0.04em; }
+.ai-content { font-size: 12px; line-height: 1.6; color: var(--text); }
+.spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border2); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; margin-left: auto; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.macro-mini { width: 100%; }
+.macro-mini tr { display: flex; justify-content: space-between; }
+.macro-mini td { font-size: 11px; padding: 2px 0; color: var(--muted); }
+.macro-mini td:last-child { color: var(--text); text-align: right; }
+.macro-mini .cal-row td { color: var(--text); font-weight: 500; font-size: 13px; }
+.error-msg { font-size: 11px; color: var(--danger); }
+.waiting { color: var(--dim); font-size: 12px; padding: 20px 0; text-align: center; }
+
+/* Follow-up */
+.followup-section { margin-top: 16px; }
+.followup-row { display: flex; gap: 8px; align-items: flex-end; }
+.followup-input {
+  flex: 1; background: var(--surface); border: 1px solid var(--border);
+  border-radius: var(--r); padding: 10px 14px; color: var(--text);
+  font-family: var(--font-mono); font-size: 13px; resize: none;
+  min-height: 44px; max-height: 120px; line-height: 1.5; -webkit-appearance: none;
+}
+.followup-input:focus { outline: none; border-color: var(--border2); }
+.followup-input::placeholder { color: var(--dim); }
+.followup-send {
+  background: var(--surface2); border: 1px solid var(--border2); color: var(--accent);
+  font-family: var(--font-mono); font-size: 13px; border-radius: var(--r);
+  padding: 10px 16px; cursor: pointer; white-space: nowrap;
+  -webkit-tap-highlight-color: transparent;
+}
+.followup-send:disabled { opacity: 0.4; cursor: default; }
+.followup-send:active { opacity: 0.7; }
+
+/* Conversation history pills */
+.history-strip { display: flex; flex-direction: column; gap: 4px; margin-top: 10px; max-height: 120px; overflow-y: auto; }
+.history-msg { font-size: 11px; padding: 5px 10px; border-radius: var(--rs); line-height: 1.4; }
+.history-msg.user { background: var(--surface2); color: var(--muted); align-self: flex-end; max-width: 90%; }
+.history-msg.assistant { background: var(--surface); color: var(--dim); align-self: flex-start; max-width: 90%; border: 1px solid var(--border); }
+
+/* 5m */
+.fivem-section { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: 16px; margin-top: 10px; display: none; }
+.fivem-section.visible { display: block; }
+.fivem-grid      { display: grid; grid-template-columns: repeat(5,1fr); gap: 8px; margin-top: 12px; }
+.fivem-plus-grid { display: grid; grid-template-columns: repeat(3,1fr); gap: 8px; margin-top: 10px; }
+.stat-block { text-align: center; }
+.stat-block .stat-n { font-size: 18px; font-weight: 500; color: var(--accent); font-family: var(--font-serif); }
+.stat-block .stat-n.stat-warn { color: var(--warn); }
+.stat-block .stat-l { font-size: 9px; color: var(--dim); text-transform: uppercase; letter-spacing: 0.08em; margin-top: 3px; }
+.source-pills { display: flex; flex-wrap: wrap; gap: 5px; margin-top: 10px; }
+.source-pill { font-size: 10px; padding: 3px 8px; border-radius: 99px; border: 1px solid; }
+.pill-claude { color: var(--claude); border-color: var(--claude); }
+.pill-openai { color: var(--openai); border-color: var(--openai); }
+.pill-gemini { color: var(--gemini); border-color: var(--gemini); }
+.pill-grok   { color: var(--grok);   border-color: var(--grok);   }
+
+/* Full tables */
+.full-results { margin-top: 24px; display: none; }
+.full-results.visible { display: block; }
+.full-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); margin-bottom: 12px; overflow: hidden; }
+.full-card-header { display: flex; align-items: center; gap: 8px; padding: 12px 16px; border-bottom: 1px solid var(--border); }
+.full-card-body { padding: 14px 16px; overflow-x: auto; }
+table.macro-full { width: 100%; border-collapse: collapse; font-size: 11px; }
+.macro-full th { color: var(--dim); font-weight: 500; text-align: right; padding: 4px 6px; border-bottom: 1px solid var(--border); white-space: nowrap; font-size: 10px; letter-spacing: 0.04em; }
+.macro-full th:first-child { text-align: left; }
+.macro-full td { padding: 5px 6px; color: var(--text); text-align: right; border-bottom: 1px solid var(--border); font-size: 11px; }
+.macro-full td:first-child { text-align: left; color: var(--muted); }
+.macro-full tr:last-child td { border-bottom: none; }
+.macro-full .total-row td { color: var(--accent); font-weight: 500; border-top: 1px solid var(--border2); }
+
+/* Toast */
+.toast { position: fixed; bottom: calc(var(--safe-bottom) + 20px); left: 50%; transform: translateX(-50%) translateY(20px); background: var(--text); color: var(--bg); font-family: var(--font-mono); font-size: 12px; padding: 10px 18px; border-radius: 99px; opacity: 0; transition: opacity 0.2s, transform 0.2s; white-space: nowrap; pointer-events: none; z-index: 999; }
+.toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+<div class="app">
+
+  <header>
+    <h1>MacroHub</h1>
+    <span class="sub">4 AI · parallel</span>
+    <div class="header-right" style="display:flex;gap:8px;">
+      <button class="new-meal-btn" id="send-log-btn" onclick="sendLogManual()" style="display:none;">✉ send log</button>
+      <button class="new-meal-btn" onclick="newMeal()">↺ new meal</button>
+    </div>
+  </header>
+
+  <!-- Keys -->
+  <div class="label">API Keys</div>
+  <button class="settings-toggle" onclick="toggleSettings()">configure keys ↓</button>
+  <div class="settings-panel" id="settings-panel">
+    <div class="key-row"><label>Anthropic (Claude)</label><input type="password" id="key-claude" placeholder="sk-ant-…" autocomplete="off" spellcheck="false"></div>
+    <div class="key-row"><label>OpenAI (GPT-4o)</label><input type="password" id="key-openai" placeholder="sk-…" autocomplete="off" spellcheck="false"></div>
+    <div class="key-row"><label>Google (Gemini)</label><input type="password" id="key-gemini" placeholder="AIza…" autocomplete="off" spellcheck="false"></div>
+    <div class="key-row"><label>xAI (Grok)</label><input type="password" id="key-grok" placeholder="xai-…" autocomplete="off" spellcheck="false"></div>
+    <div style="border-top:1px solid var(--border);margin:12px 0 14px;"></div>
+    <div class="key-row"><label>EmailJS — Public Key</label><input type="password" id="key-ejs-pub" placeholder="user_…" autocomplete="off" spellcheck="false"></div>
+    <div class="key-row"><label>EmailJS — Service ID</label><input type="text" id="key-ejs-svc" placeholder="service_…" autocomplete="off" spellcheck="false"></div>
+    <div class="key-row"><label>EmailJS — Template ID</label><input type="text" id="key-ejs-tpl" placeholder="template_…" autocomplete="off" spellcheck="false"></div>
+    <div style="border-top:1px solid var(--border);margin:12px 0 14px;"></div>
+    <div class="key-row"><label>Send meal logs to</label><input type="email" id="key-to-email" placeholder="echolightening@gmail.com" autocomplete="off" spellcheck="false"></div>
+    <button class="save-btn" onclick="saveKeys()">save keys locally</button>
+  </div>
+
+  <div class="divider"></div>
+
+  <!-- Input -->
+  <div class="label">Describe your meal</div>
+  <textarea id="meal" placeholder="e.g. Texas de Brazil: picanha, lamb chops, chicken leg, feijoada — or leave blank and use photos"></textarea>
+
+  <div class="photo-row">
+    <div class="photo-count" id="photo-count" style="display:none;"></div>
+    <div class="photo-grid" id="photo-grid">
+      <button class="add-photo-btn" id="add-photo-btn" onclick="void(0)">
+        <input type="file" accept="image/*" multiple id="img-input" onchange="handleImages(event)">
+        <span class="cam-icon">📷</span>
+        <span>add photo</span>
+      </button>
+    </div>
+  </div>
+
+  <button class="run-btn" id="run-btn" onclick="runAll()">estimate macros →</button>
+
+  <!-- Results -->
+  <div class="section" id="cards-section" style="display:none;">
+    <div class="label">Live results</div>
+    <div class="ai-grid">
+      <div class="ai-card" id="card-claude">
+        <div class="ai-card-header"><div class="ai-dot dot-claude"></div><span class="ai-name name-claude">Claude</span><div class="spinner" id="spin-claude" style="display:none;"></div></div>
+        <div class="ai-content" id="content-claude"><span class="waiting">—</span></div>
+      </div>
+      <div class="ai-card" id="card-openai">
+        <div class="ai-card-header"><div class="ai-dot dot-openai"></div><span class="ai-name name-openai">GPT-4o</span><div class="spinner" id="spin-openai" style="display:none;"></div></div>
+        <div class="ai-content" id="content-openai"><span class="waiting">—</span></div>
+      </div>
+      <div class="ai-card" id="card-gemini">
+        <div class="ai-card-header"><div class="ai-dot dot-gemini"></div><span class="ai-name name-gemini">Gemini</span><div class="spinner" id="spin-gemini" style="display:none;"></div></div>
+        <div class="ai-content" id="content-gemini"><span class="waiting">—</span></div>
+      </div>
+      <div class="ai-card" id="card-grok">
+        <div class="ai-card-header"><div class="ai-dot dot-grok"></div><span class="ai-name name-grok">Grok</span><div class="spinner" id="spin-grok" style="display:none;"></div></div>
+        <div class="ai-content" id="content-grok"><span class="waiting">—</span></div>
+      </div>
+    </div>
+
+    <!-- Follow-up -->
+    <div class="followup-section" id="followup-section" style="display:none;">
+      <div class="label" style="margin-top:16px;">Follow-up / clarification</div>
+
+      <!-- Follow-up photo strip -->
+      <div id="fu-photo-strip" style="display:none;margin-bottom:8px;">
+        <div class="photo-grid" id="fu-photo-grid" style="grid-template-columns:repeat(5,1fr);gap:4px;"></div>
+      </div>
+
+      <div class="followup-row">
+        <textarea class="followup-input" id="followup-input" placeholder="add a note, correction, or just attach a photo…" rows="1"></textarea>
+        <button class="followup-send" id="followup-send" onclick="sendFollowup()">send →</button>
+      </div>
+
+      <!-- Photo + send log row -->
+      <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
+        <label style="background:var(--surface2);border:1px solid var(--border2);color:var(--dim);font-family:var(--font-mono);font-size:11px;border-radius:var(--rs);padding:6px 12px;cursor:pointer;-webkit-tap-highlight-color:transparent;">
+          📷 add photo
+          <input type="file" accept="image/*" multiple id="fu-img-input" onchange="handleFollowupImages(event)" style="display:none;">
+        </label>
+        <button class="new-meal-btn" id="nourish-btn" onclick="generateNourish()" style="display:none;font-size:12px;padding:7px 12px;">🥗 copy for Nourish</button>
+        <button class="new-meal-btn" id="send-log-btn2" onclick="sendLogManual()" style="display:none;font-size:12px;padding:7px 12px;">✉ send log</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- 5m -->
+  <div class="section">
+    <div class="fivem-section" id="fivem-section">
+      <div class="label">5m — calories</div>
+      <div class="fivem-grid" id="fivem-grid"></div>
+      <div style="margin-top:18px;" class="label">5m+ — conservative ceiling</div>
+      <div class="fivem-plus-grid" id="fivem-plus-grid"></div>
+      <div style="margin-top:6px;font-size:10px;color:var(--dim);">max cal · carb · fat · sat fat &nbsp;/&nbsp; min protein · fiber</div>
+      <div class="source-pills" id="source-pills"></div>
+    </div>
+  </div>
+
+  <!-- Full tables -->
+  <div class="full-results" id="full-results">
+    <div class="label">Full tables</div>
+    <div id="full-cards"></div>
+  </div>
+
+  <!-- Nourish summary -->
+  <div id="nourish-section" style="display:none;margin-top:24px;">
+    <div class="label">Nourish summary</div>
+    <div style="background:var(--surface);border:1px solid var(--border);border-radius:var(--r);overflow:hidden;">
+      <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border);background:var(--surface2);">
+        <span style="font-size:11px;color:var(--muted);">ready to paste into Nourish</span>
+        <button onclick="copyNourish()" id="nourish-copy-btn" style="background:var(--accent);color:#0a0a0a;border:none;border-radius:var(--rs);padding:6px 14px;font-family:var(--font-mono);font-size:11px;font-weight:500;cursor:pointer;-webkit-tap-highlight-color:transparent;">copy</button>
+      </div>
+      <div id="nourish-output" style="padding:14px;font-size:13px;line-height:1.7;color:var(--text);white-space:pre-wrap;"></div>
+    </div>
+    <button onclick="generateNourish()" id="nourish-regen-btn" style="margin-top:8px;background:none;border:1px solid var(--border2);color:var(--dim);font-family:var(--font-mono);font-size:11px;border-radius:var(--rs);padding:6px 14px;cursor:pointer;-webkit-tap-highlight-color:transparent;">↺ regenerate</button>
+  </div>
+
+</div>
+<div class="toast" id="toast"></div>
+
+<script>
+// ── Constants ──────────────────────────────────────────────────────────────
+const MAX_PHOTOS = 20;
+const BATCH_SIZE = 10; // max per API call (GPT-4o limit)
+const RESIZE_MAX = 1500; // px — keeps Claude happy on dimension limit
+
+const AI_CONFIGS = {
+  claude: { label:'Claude',  color:'#d4956a' },
+  openai: { label:'GPT-4o', color:'#74c99a' },
+  gemini: { label:'Gemini', color:'#7eb8f7' },
+  grok:   { label:'Grok',   color:'#c4b5f7' },
+};
+
+const PROMPT_SYSTEM = `You are a precise macro estimator. Use realistic restaurant portions. Be precise, not conservative.`;
+
+const PROMPT_INITIAL_TEXT  = `Estimate macros for this meal. Return ONLY a valid JSON object — no markdown, no backticks, no explanation. Shape: {"items":[{"name":"...","cal":0,"pro":0,"carb":0,"fat":0,"satfat":0,"fiber":0}],"total":{"cal":0,"pro":0,"carb":0,"fat":0,"satfat":0,"fiber":0}}\n\nMeal: `;
+const PROMPT_INITIAL_IMG   = `Look at these meal photos and estimate macros for everything you can see. Return ONLY a valid JSON object — no markdown, no backticks. Shape: {"items":[{"name":"...","cal":0,"pro":0,"carb":0,"fat":0,"satfat":0,"fiber":0}],"total":{"cal":0,"pro":0,"carb":0,"fat":0,"satfat":0,"fiber":0}}`;
+const PROMPT_INITIAL_BOTH  = `Look at these meal photos AND use this description. Return ONLY a valid JSON object — no markdown, no backticks. Shape: {"items":[{"name":"...","cal":0,"pro":0,"carb":0,"fat":0,"satfat":0,"fiber":0}],"total":{"cal":0,"pro":0,"carb":0,"fat":0,"satfat":0,"fiber":0}}\n\nDescription: `;
+const PROMPT_FOLLOWUP      = `Update your macro estimate based on this correction/clarification. Respond in two parts:\n1. A brief plain-English explanation (2-4 sentences) of what changed and why — what items were adjusted, added, or removed.\n2. The complete updated JSON on a new line, in this exact shape: {"items":[{"name":"...","cal":0,"pro":0,"carb":0,"fat":0,"satfat":0,"fiber":0}],"total":{"cal":0,"pro":0,"carb":0,"fat":0,"satfat":0,"fiber":0}}\nNo markdown, no backticks around the JSON.\n\nCorrection: `;
+
+// ── State ──────────────────────────────────────────────────────────────────
+let photos = []; // [{b64, mime, thumb}]
+let followupPhotos = []; // [{b64, mime, thumb}] — cleared after each followup send
+let results = {}; // {claude: {items, total}, ...}
+let rawResponses = {}; // {claude: [{turn, text}], ...}
+let histories = { claude:[], openai:[], gemini:[], grok:[] }; // multi-turn per AI
+let sessionActive = false;
+
+// ── Keys ───────────────────────────────────────────────────────────────────
+const ALL_KEYS = ['claude','openai','gemini','grok','ejs-pub','ejs-svc','ejs-tpl','to-email'];
+const DEFAULT_TO = 'echolightening@gmail.com';
+function loadKeys() {
+  ALL_KEYS.forEach(k => {
+    const v = localStorage.getItem('mk_'+k);
+    const el = document.getElementById('key-'+k);
+    if (el) el.value = v || (k === 'to-email' ? DEFAULT_TO : '');
+  });
+  const pub = localStorage.getItem('mk_ejs-pub');
+  if (pub) { try { emailjs.init(pub); } catch(e) {} }
+}
+function saveKeys() {
+  ALL_KEYS.forEach(k => {
+    const el = document.getElementById('key-'+k);
+    if (!el) return;
+    const v = el.value.trim();
+    if (v) localStorage.setItem('mk_'+k, v);
+  });
+  const pub = document.getElementById('key-ejs-pub').value.trim();
+  if (pub) { try { emailjs.init(pub); } catch(e) {} }
+  showToast('Keys saved');
+  document.getElementById('settings-panel').classList.remove('open');
+}
+function getKey(n) { return (document.getElementById('key-'+n)||{}).value?.trim() || localStorage.getItem('mk_'+n) || ''; }
+function toggleSettings() { document.getElementById('settings-panel').classList.toggle('open'); }
+
+// ── Toast ──────────────────────────────────────────────────────────────────
+function showToast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), 2200); }
+
+// ── Image handling ─────────────────────────────────────────────────────────
+async function resizeImage(file) {
+  return new Promise(resolve => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      let w = img.width, h = img.height;
+      if (w > RESIZE_MAX || h > RESIZE_MAX) {
+        const ratio = Math.min(RESIZE_MAX/w, RESIZE_MAX/h);
+        w = Math.round(w*ratio); h = Math.round(h*ratio);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      URL.revokeObjectURL(url);
+      const mime = 'image/jpeg';
+      const data = canvas.toDataURL(mime, 0.85);
+      resolve({ b64: data.split(',')[1], mime, thumb: data });
+    };
+    img.src = url;
+  });
+}
+
+async function handleImages(e) {
+  const files = Array.from(e.target.files);
+  const remaining = MAX_PHOTOS - photos.length;
+  if (remaining <= 0) { showToast(`Max ${MAX_PHOTOS} photos`); return; }
+  const toAdd = files.slice(0, remaining);
+  if (files.length > remaining) showToast(`Added ${remaining} of ${files.length} (max ${MAX_PHOTOS})`);
+  const processed = await Promise.all(toAdd.map(f => resizeImage(f)));
+  photos.push(...processed);
+  renderPhotoGrid();
+  document.getElementById('img-input').value = '';
+}
+
+function removePhoto(i) {
+  photos.splice(i, 1);
+  renderPhotoGrid();
+}
+
+function renderPhotoGrid() {
+  const grid = document.getElementById('photo-grid');
+  const countEl = document.getElementById('photo-count');
+  grid.innerHTML = '';
+
+  photos.forEach((p, i) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'photo-thumb-wrap';
+    wrap.innerHTML = `<img class="photo-thumb" src="${p.thumb}"><button class="photo-thumb-remove" onclick="removePhoto(${i})">✕</button>`;
+    grid.appendChild(wrap);
+  });
+
+  if (photos.length < MAX_PHOTOS) {
+    const btn = document.createElement('button');
+    btn.className = 'add-photo-btn';
+    btn.innerHTML = `<input type="file" accept="image/*" multiple id="img-input" onchange="handleImages(event)"><span class="cam-icon">📷</span><span>${photos.length ? 'add more' : 'add photo'}</span>`;
+    grid.appendChild(btn);
+  }
+
+  if (photos.length > 0) {
+    countEl.style.display = 'block';
+    countEl.textContent = `${photos.length} photo${photos.length>1?'s':''} · auto-batched into ${Math.ceil(photos.length/BATCH_SIZE)} send${Math.ceil(photos.length/BATCH_SIZE)>1?'s':''}`;
+  } else {
+    countEl.style.display = 'none';
+  }
+}
+
+// ── UI helpers ─────────────────────────────────────────────────────────────
+function setCardState(id, state) {
+  document.getElementById('card-'+id).className = 'ai-card ' + state;
+  document.getElementById('spin-'+id).style.display = state==='loading' ? 'inline-block' : 'none';
+}
+
+function renderMini(data, prose) {
+  const t = data.total;
+  const proseHtml = prose ? `<div style="font-size:11px;color:var(--muted);line-height:1.5;margin-bottom:8px;padding-bottom:8px;border-bottom:1px solid var(--border);">${prose}</div>` : '';
+  return `${proseHtml}<table class="macro-mini">
+    <tr class="cal-row"><td>calories</td><td>${t.cal}</td></tr>
+    <tr><td>protein</td><td>${t.pro}g</td></tr>
+    <tr><td>carbs</td><td>${t.carb}g</td></tr>
+    <tr><td>fat</td><td>${t.fat}g</td></tr>
+    <tr><td>sat fat</td><td>${t.satfat}g</td></tr>
+    <tr><td>fiber</td><td>${t.fiber}g</td></tr>
+  </table>`;
+}
+
+function renderFull(id, data) {
+  const rows = data.items.map(i=>`<tr><td>${i.name}</td><td>${i.cal}</td><td>${i.pro}</td><td>${i.carb}</td><td>${i.fat}</td><td>${i.satfat}</td><td>${i.fiber}</td></tr>`).join('');
+  const t = data.total;
+  const rawHistory = (rawResponses[id]||[]).map((r,i)=>
+    `<div style="margin-bottom:10px;"><div style="font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Turn ${r.turn}${r.prose?' · note below':''}</div>${r.prose?`<div style="font-size:11px;color:var(--muted);margin-bottom:6px;">${r.prose}</div>`:''}<pre style="font-size:10px;color:var(--dim);white-space:pre-wrap;word-break:break-all;background:var(--bg);padding:8px;border-radius:var(--rs);overflow-x:auto;">${JSON.stringify(r.data,null,2)}</pre></div>`
+  ).join('');
+  const rawId = `raw-${id}`;
+  return `<div class="full-card">
+    <div class="full-card-header">
+      <div class="ai-dot dot-${id}"></div>
+      <span class="ai-name name-${id}">${AI_CONFIGS[id].label}</span>
+      <button onclick="toggleRaw('${rawId}')" style="margin-left:auto;background:none;border:1px solid var(--border);color:var(--dim);font-family:var(--font-mono);font-size:10px;border-radius:var(--rs);padding:3px 8px;cursor:pointer;">raw ↕</button>
+    </div>
+    <div class="full-card-body">
+      <table class="macro-full">
+        <thead><tr><th>Item</th><th>Cal</th><th>Pro</th><th>Carb</th><th>Fat</th><th>Sat</th><th>Fib</th></tr></thead>
+        <tbody>${rows}<tr class="total-row"><td>Total</td><td>${t.cal}</td><td>${t.pro}</td><td>${t.carb}</td><td>${t.fat}</td><td>${t.satfat}</td><td>${t.fiber}</td></tr></tbody>
+      </table>
+      <div id="${rawId}" style="display:none;margin-top:14px;border-top:1px solid var(--border);padding-top:14px;">${rawHistory||'<span style="font-size:11px;color:var(--dim);">No raw responses yet.</span>'}</div>
+    </div>
+  </div>`;
+}
+
+function toggleRaw(id) {
+  const el = document.getElementById(id);
+  if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+// ── 5m ─────────────────────────────────────────────────────────────────────
+function updateFiveM() {
+  const done = Object.keys(results).filter(k=>results[k]&&results[k].total);
+  if (done.length < 2) {
+    // show single result inline but don't show 5m yet
+    return;
+  }
+  const data = done.map(k=>results[k]);
+  const cals = data.map(r=>r.total.cal);
+  const sorted = [...cals].sort((a,b)=>a-b);
+  const min=sorted[0], max=sorted[sorted.length-1];
+  const mean=Math.round(cals.reduce((a,b)=>a+b,0)/cals.length);
+  const mid=Math.floor(sorted.length/2);
+  const median=sorted.length%2===0?Math.round((sorted[mid-1]+sorted[mid])/2):sorted[mid];
+  const freq={}; cals.forEach(v=>freq[v]=(freq[v]||0)+1);
+  const maxF=Math.max(...Object.values(freq));
+  const modes=Object.keys(freq).filter(k=>freq[k]===maxF).map(Number);
+  const modeVal=modes.length===cals.length?'—':modes.join('/');
+
+  document.getElementById('fivem-grid').innerHTML =
+    [['Min',min],['Mean',mean],['Median',median],['Mode',modeVal],['Max',max]]
+    .map(([l,v])=>`<div class="stat-block"><div class="stat-n">${v}</div><div class="stat-l">${l}</div></div>`).join('');
+
+  const pluck=(key,fn)=>fn(...data.map(r=>r.total[key]));
+  const plus={cal:pluck('cal',Math.max),pro:pluck('pro',Math.min),carb:pluck('carb',Math.max),fat:pluck('fat',Math.max),satfat:pluck('satfat',Math.max),fiber:pluck('fiber',Math.min)};
+
+  // Find which AI contributed each 5m+ value
+  function sourceOf(key, fn) {
+    const val = fn(...data.map(r=>r.total[key]));
+    const srcId = done.find(k => results[k].total[key] === val);
+    return srcId ? { label: AI_CONFIGS[srcId].label, color: AI_CONFIGS[srcId].color } : { label: '', color: 'var(--dim)' };
+  }
+  const plusSrc = {
+    cal:    sourceOf('cal',    Math.max),
+    pro:    sourceOf('pro',    Math.min),
+    carb:   sourceOf('carb',   Math.max),
+    fat:    sourceOf('fat',    Math.max),
+    satfat: sourceOf('satfat', Math.max),
+    fiber:  sourceOf('fiber',  Math.min),
+  };
+
+  document.getElementById('fivem-plus-grid').innerHTML =
+    [['cal',plus.cal+' kcal',false,'cal'],['protein',plus.pro+'g',true,'pro'],['carbs',plus.carb+'g',false,'carb'],
+     ['fat',plus.fat+'g',false,'fat'],['sat fat',plus.satfat+'g',false,'satfat'],['fiber',plus.fiber+'g',true,'fiber']]
+    .map(([l,v,w,k])=>`<div class="stat-block">
+      <div class="stat-n${w?' stat-warn':''}">${v}</div>
+      <div class="stat-l">${l}</div>
+      <div style="font-size:9px;color:${plusSrc[k].color};margin-top:2px;letter-spacing:0.04em;">${plusSrc[k].label}</div>
+    </div>`).join('');
+
+  // Source pills with each AI's calorie contribution
+  document.getElementById('source-pills').innerHTML = done.map(k=>{
+    const cal = results[k].total.cal;
+    return `<span class="source-pill pill-${k}">${AI_CONFIGS[k].label} ${cal}</span>`;
+  }).join('');
+
+  document.getElementById('fivem-section').classList.add('visible');
+
+  // Update full tables
+  document.getElementById('full-cards').innerHTML = done.map(id=>renderFull(id,results[id])).join('');
+  document.getElementById('full-results').classList.add('visible');
+}
+
+// ── JSON parsing ───────────────────────────────────────────────────────────
+function repairJSON(str) {
+  // Close any unclosed arrays and objects to handle truncated responses
+  let s = str.trim();
+  // Remove trailing comma before attempting close
+  s = s.replace(/,\s*$/, '');
+  // Count unclosed braces and brackets
+  let braces = 0, brackets = 0;
+  let inString = false, escape = false;
+  for (const ch of s) {
+    if (escape) { escape = false; continue; }
+    if (ch === '\\' && inString) { escape = true; continue; }
+    if (ch === '"') { inString = !inString; continue; }
+    if (inString) continue;
+    if (ch === '{') braces++;
+    else if (ch === '}') braces--;
+    else if (ch === '[') brackets++;
+    else if (ch === ']') brackets--;
+  }
+  // Close unclosed structures
+  while (brackets > 0) { s += ']'; brackets--; }
+  while (braces > 0) { s += '}'; braces--; }
+  return s;
+}
+
+function parseResponse(text) {
+  const start = text.indexOf('{'), end = text.lastIndexOf('}');
+  if (start === -1) throw new Error('No JSON found in response');
+  const prose = text.slice(0, start).trim();
+  let jsonStr = end !== -1 ? text.slice(start, end+1) : text.slice(start);
+  try {
+    return { data: JSON.parse(jsonStr), prose };
+  } catch(e) {
+    // Try repairing truncated JSON
+    const repaired = repairJSON(jsonStr);
+    return { data: JSON.parse(repaired), prose };
+  }
+}
+function parseJSON(text) { return parseResponse(text).data; }
+
+// Merge two JSON results (batch 1 + batch 2) by combining items and summing totals
+function mergeResults(a, b) {
+  if (!a) return b;
+  if (!b) return a;
+  const items = [...a.items, ...b.items];
+  const keys = ['cal','pro','carb','fat','satfat','fiber'];
+  const total = {};
+  keys.forEach(k => total[k] = a.total[k] + b.total[k]);
+  return { items, total };
+}
+
+// ── Build multi-image content parts ───────────────────────────────────────
+function buildImageParts_Claude(batch, notes, isFollowup) {
+  const imgParts = batch.map(p=>({type:'image',source:{type:'base64',media_type:p.mime,data:p.b64}}));
+  const textPrompt = isFollowup ? PROMPT_FOLLOWUP + notes :
+    (notes ? PROMPT_INITIAL_BOTH + notes : PROMPT_INITIAL_IMG);
+  return [...imgParts, {type:'text',text:textPrompt}];
+}
+function buildImageParts_OpenAI(batch, notes, isFollowup) {
+  const imgParts = batch.map(p=>({type:'image_url',image_url:{url:`data:${p.mime};base64,${p.b64}`}}));
+  const textPrompt = isFollowup ? PROMPT_FOLLOWUP + notes :
+    (notes ? PROMPT_INITIAL_BOTH + notes : PROMPT_INITIAL_IMG);
+  return [...imgParts, {type:'text',text:textPrompt}];
+}
+function buildImageParts_Gemini(batch, notes, isFollowup) {
+  const imgParts = batch.map(p=>({inline_data:{mime_type:p.mime,data:p.b64}}));
+  const textPrompt = isFollowup ? PROMPT_FOLLOWUP + notes :
+    (notes ? PROMPT_INITIAL_BOTH + notes : PROMPT_INITIAL_IMG);
+  return [...imgParts, {text:textPrompt}];
+}
+
+// ── API calls ──────────────────────────────────────────────────────────────
+
+// Claude
+async function callClaude(messages, key) {
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body:JSON.stringify({model:'claude-opus-4-5-20251101',max_tokens:1500,system:PROMPT_SYSTEM,messages})
+  });
+  const d = await r.json();
+  if (!r.ok || d.error) throw new Error(`Claude ${r.status}: ${d.error?.message || JSON.stringify(d)}`);
+  return d.content[0].text;
+}
+
+// OpenAI
+async function callOpenAI(messages, key) {
+  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+    body:JSON.stringify({model:'gpt-4o',max_tokens:1500,messages:[{role:'system',content:PROMPT_SYSTEM},...messages]})
+  });
+  const d = await r.json(); if (d.error) throw new Error(d.error.message);
+  return d.choices[0].message.content;
+}
+
+// Gemini — converts OpenAI-style messages to Gemini contents format
+function toGeminiContents(messages) {
+  return messages.map(m => {
+    const role = m.role === 'assistant' ? 'model' : 'user';
+    let parts;
+    if (typeof m.content === 'string') {
+      parts = [{text: m.content}];
+    } else {
+      // content is array (image + text parts already in Gemini format for us)
+      parts = m.content;
+    }
+    return {role, parts};
+  });
+}
+async function callGemini(messages, key) {
+  const contents = toGeminiContents(messages);
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${key}`, {
+    method:'POST', headers:{'Content-Type':'application/json'},
+    body:JSON.stringify({
+      contents,
+      systemInstruction:{parts:[{text:PROMPT_SYSTEM}]},
+      generationConfig:{maxOutputTokens:8000}
+    })
+  });
+  const d = await r.json(); if (d.error) throw new Error(d.error.message);
+  return d.candidates[0].content.parts[0].text;
+}
+
+// Grok
+async function callGrok(messages, key, hasImages) {
+  const model = 'grok-4.3'; // handles both text and vision natively
+  const r = await fetch('https://api.x.ai/v1/chat/completions', {
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+    body:JSON.stringify({model,max_tokens:1500,messages:[{role:'system',content:PROMPT_SYSTEM},...messages]})
+  });
+  const d = await r.json(); if (d.error) throw new Error(d.error.message||JSON.stringify(d.error));
+  return d.choices[0].message.content;
+}
+
+// ── Per-AI session runner ──────────────────────────────────────────────────
+async function runAI(id, userContent, isFollowup) {
+  const key = getKey(id);
+  if (!key) return;
+
+  setCardState(id, 'loading');
+  document.getElementById('content-'+id).innerHTML = '<span class="waiting">estimating…</span>';
+
+  const hasImages = photos.length > 0 && !isFollowup;
+
+  try {
+    let finalResult = null;
+    let finalProse = '';
+    const turnNum = (rawResponses[id]||[]).length + 1;
+
+    if (hasImages && !isFollowup) {
+      const batches = [];
+      for (let i = 0; i < photos.length; i += BATCH_SIZE) batches.push(photos.slice(i, i+BATCH_SIZE));
+      const meal = document.getElementById('meal').value.trim();
+
+      for (let bi = 0; bi < batches.length; bi++) {
+        const batch = batches[bi];
+        const batchNotes = bi === 0 ? meal : `(Batch ${bi+1} of ${batches.length} — additional photos of the same meal. Add these items to your previous estimate.)`;
+        let rawText;
+
+        if (id === 'claude') {
+          const content = buildImageParts_Claude(batch, batchNotes, false);
+          histories.claude.push({role:'user', content});
+          rawText = await callClaude(histories.claude, key);
+          histories.claude.push({role:'assistant', content: rawText});
+        } else if (id === 'openai') {
+          const content = buildImageParts_OpenAI(batch, batchNotes, false);
+          histories.openai.push({role:'user', content});
+          rawText = await callOpenAI(histories.openai, key);
+          histories.openai.push({role:'assistant', content: rawText});
+        } else if (id === 'gemini') {
+          const parts = buildImageParts_Gemini(batch, batchNotes, false);
+          histories.gemini.push({role:'user', content: parts});
+          rawText = await callGemini(histories.gemini, key);
+          histories.gemini.push({role:'assistant', content: rawText});
+        } else if (id === 'grok') {
+          const content = buildImageParts_OpenAI(batch, batchNotes, false);
+          histories.grok.push({role:'user', content});
+          rawText = await callGrok(histories.grok, key, true);
+          histories.grok.push({role:'assistant', content: rawText});
+        }
+
+        const { data: batchResult, prose } = parseResponse(rawText);
+        finalResult = mergeResults(finalResult, batchResult);
+        if (!rawResponses[id]) rawResponses[id] = [];
+        rawResponses[id].push({ turn: turnNum + bi, data: batchResult, prose });
+      }
+
+    } else {
+      const meal = document.getElementById('meal').value.trim();
+      let rawText;
+
+      if (isFollowup) {
+        // userContent is {text, photos} for followups
+        const fuText = userContent.text || '';
+        const fuPhotos = userContent.photos || [];
+        const promptText = PROMPT_FOLLOWUP + (fuText || '(see attached photo)');
+
+        if (fuPhotos.length > 0) {
+          // Send with images — use vision path
+          const batches = [];
+          for (let i = 0; i < fuPhotos.length; i += BATCH_SIZE) batches.push(fuPhotos.slice(i, i+BATCH_SIZE));
+          let batchResult = null;
+
+          for (let bi = 0; bi < batches.length; bi++) {
+            const batch = batches[bi];
+            const batchPrompt = bi === 0 ? promptText : `(Additional follow-up photos, same correction as before. Merge into your updated estimate.)`;
+            let bRaw;
+
+            if (id === 'claude') {
+              const content = buildImageParts_Claude(batch, batchPrompt.replace(PROMPT_FOLLOWUP,''), true);
+              // Override: use batchPrompt as the text part directly
+              const imgParts = batch.map(p=>({type:'image',source:{type:'base64',media_type:p.mime,data:p.b64}}));
+              const msgContent = [...imgParts, {type:'text', text: batchPrompt}];
+              histories.claude.push({role:'user', content: msgContent});
+              bRaw = await callClaude(histories.claude, key);
+              histories.claude.push({role:'assistant', content: bRaw});
+            } else if (id === 'openai') {
+              const imgParts = batch.map(p=>({type:'image_url',image_url:{url:`data:${p.mime};base64,${p.b64}`}}));
+              histories.openai.push({role:'user', content:[...imgParts,{type:'text',text:batchPrompt}]});
+              bRaw = await callOpenAI(histories.openai, key);
+              histories.openai.push({role:'assistant', content: bRaw});
+            } else if (id === 'gemini') {
+              const imgParts = batch.map(p=>({inline_data:{mime_type:p.mime,data:p.b64}}));
+              histories.gemini.push({role:'user', content:[...imgParts,{text:batchPrompt}]});
+              bRaw = await callGemini(histories.gemini, key);
+              histories.gemini.push({role:'assistant', content: bRaw});
+            } else if (id === 'grok') {
+              const imgParts = batch.map(p=>({type:'image_url',image_url:{url:`data:${p.mime};base64,${p.b64}`}}));
+              histories.grok.push({role:'user', content:[...imgParts,{type:'text',text:batchPrompt}]});
+              bRaw = await callGrok(histories.grok, key, true);
+              histories.grok.push({role:'assistant', content: bRaw});
+            }
+            const { data: bd, prose: bp } = parseResponse(bRaw);
+            batchResult = mergeResults(batchResult, bd);
+            if (!rawResponses[id]) rawResponses[id] = [];
+            rawResponses[id].push({ turn: turnNum, data: bd, prose: bp });
+          }
+          finalResult = batchResult;
+          finalProse = (rawResponses[id]||[]).slice(-1)[0]?.prose || '';
+        } else {
+          // Text-only followup
+          const textContent = promptText;
+          if (id === 'gemini') {
+            histories.gemini.push({role:'user', content:[{text: textContent}]});
+            rawText = await callGemini(histories.gemini, key);
+            histories.gemini.push({role:'assistant', content: rawText});
+          } else {
+            const hist = histories[id];
+            hist.push({role:'user', content: textContent});
+            if (id==='claude') rawText = await callClaude(hist, key);
+            else if (id==='openai') rawText = await callOpenAI(hist, key);
+            else if (id==='grok') rawText = await callGrok(hist, key, false);
+            hist.push({role:'assistant', content: rawText});
+          }
+          const { data, prose } = parseResponse(rawText);
+          finalResult = data;
+          finalProse = prose;
+          if (!rawResponses[id]) rawResponses[id] = [];
+          rawResponses[id].push({ turn: turnNum, data, prose });
+        }
+      } else {
+        const textContent = PROMPT_INITIAL_TEXT + meal;
+        if (id === 'gemini') {
+          histories.gemini.push({role:'user', content:[{text: textContent}]});
+          rawText = await callGemini(histories.gemini, key);
+          histories.gemini.push({role:'assistant', content: rawText});
+        } else {
+          const hist = histories[id];
+          hist.push({role:'user', content: textContent});
+          if (id==='claude') rawText = await callClaude(hist, key);
+          else if (id==='openai') rawText = await callOpenAI(hist, key);
+          else if (id==='grok') rawText = await callGrok(hist, key, false);
+          hist.push({role:'assistant', content: rawText});
+        }
+        const { data, prose } = parseResponse(rawText);
+        finalResult = data;
+        finalProse = prose;
+        if (!rawResponses[id]) rawResponses[id] = [];
+        rawResponses[id].push({ turn: turnNum, data, prose });
+      }
+    }
+
+    results[id] = finalResult;
+    setCardState(id, 'done');
+    document.getElementById('content-'+id).innerHTML = renderMini(finalResult, finalProse);
+    updateFiveM();
+
+  } catch(e) {
+    setCardState(id, 'error');
+    document.getElementById('content-'+id).innerHTML = `<span class="error-msg">${e.message.slice(0,120)}</span>`;
+  }
+}
+
+// ── Run all (initial) ──────────────────────────────────────────────────────
+async function runAll() {
+  const meal = document.getElementById('meal').value.trim();
+  const hasPhotos = photos.length > 0;
+  if (!meal && !hasPhotos) { showToast('Add a description or a photo'); return; }
+
+  const keys = {claude:getKey('claude'),openai:getKey('openai'),gemini:getKey('gemini'),grok:getKey('grok')};
+  if (Object.values(keys).every(v=>!v)) { showToast('Add at least one API key'); document.getElementById('settings-panel').classList.add('open'); return; }
+
+  // Reset for new estimation
+  results = {};
+  rawResponses = {};
+  histories = {claude:[],openai:[],gemini:[],grok:[]};
+  sessionActive = true;
+
+  document.getElementById('cards-section').style.display = 'block';
+  document.getElementById('fivem-section').classList.remove('visible');
+  document.getElementById('full-results').classList.remove('visible');
+  document.getElementById('run-btn').disabled = true;
+  document.getElementById('followup-section').style.display = 'none';
+
+  const activeIds = Object.keys(AI_CONFIGS).filter(id=>getKey(id));
+  await Promise.allSettled(activeIds.map(id => runAI(id, null, false)));
+
+  document.getElementById('run-btn').disabled = false;
+  document.getElementById('send-log-btn').style.display = 'inline-block';
+  document.getElementById('send-log-btn2').style.display = 'inline-block';
+  document.getElementById('nourish-btn').style.display = 'inline-block';
+  document.getElementById('followup-section').style.display = 'block';
+  document.getElementById('followup-input').focus();
+}
+
+// ── Follow-up image handling ────────────────────────────────────────────────
+async function handleFollowupImages(e) {
+  const files = Array.from(e.target.files);
+  const remaining = 10 - followupPhotos.length;
+  if (remaining <= 0) { showToast('Max 10 photos per follow-up'); return; }
+  const toAdd = files.slice(0, remaining);
+  if (files.length > remaining) showToast(`Added ${remaining} of ${files.length}`);
+  const processed = await Promise.all(toAdd.map(f => resizeImage(f)));
+  followupPhotos.push(...processed);
+  renderFollowupPhotoGrid();
+  document.getElementById('fu-img-input').value = '';
+}
+
+function removeFollowupPhoto(i) {
+  followupPhotos.splice(i, 1);
+  renderFollowupPhotoGrid();
+}
+
+function renderFollowupPhotoGrid() {
+  const grid = document.getElementById('fu-photo-grid');
+  const strip = document.getElementById('fu-photo-strip');
+  grid.innerHTML = '';
+  if (followupPhotos.length === 0) { strip.style.display = 'none'; return; }
+  strip.style.display = 'block';
+  followupPhotos.forEach((p, i) => {
+    const wrap = document.createElement('div');
+    wrap.className = 'photo-thumb-wrap';
+    wrap.innerHTML = `<img class="photo-thumb" src="${p.thumb}"><button class="photo-thumb-remove" onclick="removeFollowupPhoto(${i})">✕</button>`;
+    grid.appendChild(wrap);
+  });
+}
+
+// ── Follow-up ──────────────────────────────────────────────────────────────
+async function sendFollowup() {
+  const input = document.getElementById('followup-input');
+  const text = input.value.trim();
+  const hasFuPhotos = followupPhotos.length > 0;
+
+  if (!text && !hasFuPhotos) { showToast('Add a note or a photo'); return; }
+
+  input.value = '';
+  document.getElementById('followup-send').disabled = true;
+
+  // Snapshot photos then clear UI immediately
+  const photoSnapshot = [...followupPhotos];
+  followupPhotos = [];
+  renderFollowupPhotoGrid();
+
+  const activeIds = Object.keys(AI_CONFIGS).filter(id=>getKey(id));
+  await Promise.allSettled(activeIds.map(id => runAI(id, {text, photos: photoSnapshot}, true)));
+
+  document.getElementById('followup-send').disabled = false;
+}
+
+// ── Email summary ──────────────────────────────────────────────────────────
+function buildEmailSummary() {
+  const now = new Date();
+  const dateStr = now.toLocaleDateString('en-US', { weekday:'long', year:'numeric', month:'long', day:'numeric' });
+  const timeStr = now.toLocaleTimeString('en-US', { hour:'numeric', minute:'2-digit', hour12:true });
+  const mealDesc = document.getElementById('meal').value.trim();
+
+  // Collect all AI results
+  const aiIds = Object.keys(results).filter(k => results[k] && results[k].total);
+  if (aiIds.length === 0) return null;
+
+  // Build consensus item list — use the AI with the most items as the base,
+  // then show its items sorted by calories descending
+  const baseId = aiIds.reduce((best, id) =>
+    (results[id].items.length > results[best].items.length ? id : best), aiIds[0]);
+  const baseItems = [...results[baseId].items].sort((a,b) => b.cal - a.cal);
+
+  // 5m stats across AIs
+  const cals = aiIds.map(k => results[k].total.cal);
+  const sorted = [...cals].sort((a,b)=>a-b);
+  const mean = Math.round(cals.reduce((a,b)=>a+b,0)/cals.length);
+  const mid = Math.floor(sorted.length/2);
+  const median = sorted.length%2===0 ? Math.round((sorted[mid-1]+sorted[mid])/2) : sorted[mid];
+
+  // Conservative ceiling (5m+)
+  const pluck = (key,fn) => fn(...aiIds.map(k=>results[k].total[key]));
+  const plus = {
+    cal: pluck('cal',Math.max), pro: pluck('pro',Math.min),
+    carb: pluck('carb',Math.max), fat: pluck('fat',Math.max),
+    satfat: pluck('satfat',Math.max), fiber: pluck('fiber',Math.min)
+  };
+
+  // Per-AI totals
+  const aiRows = aiIds.map(id => {
+    const t = results[id].total;
+    return `  ${AI_CONFIGS[id].label.padEnd(8)}: ${String(t.cal).padStart(4)} cal | ${String(t.pro).padStart(3)}g protein | ${String(t.carb).padStart(3)}g carbs | ${String(t.fat).padStart(3)}g fat`;
+  }).join('\n');
+
+  // Top items (>100 cal, max 15)
+  const topItems = baseItems
+    .filter(i => i.cal >= 100)
+    .slice(0, 15)
+    .map(i => `  • ${i.name}: ${i.cal} cal | ${i.pro}g pro | ${i.carb}g carbs | ${i.fat}g fat`)
+    .join('\n');
+
+  const followupLog = aiIds.map(id => {
+    const turns = (rawResponses[id]||[]).filter(r => r.prose);
+    if (!turns.length) return '';
+    return `${AI_CONFIGS[id].label}:\n` + turns.map(r => `  Turn ${r.turn}: ${r.prose}`).join('\n');
+  }).filter(Boolean).join('\n\n');
+
+  const body = [
+    `MACRO LOG`,
+    `${dateStr} at ${timeStr}`,
+    ``,
+    mealDesc ? `MEAL: ${mealDesc}` : `MEAL: (photo only)`,
+    ``,
+    `── TOP ITEMS (by calories) ──`,
+    topItems || '  (no items available)',
+    ``,
+    `── PER-AI TOTALS ──`,
+    aiRows,
+    ``,
+    `── 5m STATS (calories) ──`,
+    `  Min: ${sorted[0]}  Mean: ${mean}  Median: ${median}  Max: ${sorted[sorted.length-1]}`,
+    ``,
+    `── 5m+ CONSERVATIVE CEILING ──`,
+    `  Cal: ${plus.cal} | Protein: ${plus.pro}g | Carbs: ${plus.carb}g | Fat: ${plus.fat}g | Sat Fat: ${plus.satfat}g | Fiber: ${plus.fiber}g`,
+    followupLog ? `\n── FOLLOW-UP NOTES ──\n${followupLog}` : '',
+    ``,
+    `— MacroHub`
+  ].filter(s => s !== undefined).join('\n');
+
+  return {
+    subject: `Macro Log — ${dateStr} ${timeStr}`,
+    body
+  };
+}
+
+async function sendLogManual() {
+  ['send-log-btn','send-log-btn2'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) { btn.textContent = '✉ sending…'; btn.disabled = true; }
+  });
+  await sendMealEmail();
+  ['send-log-btn','send-log-btn2'].forEach(id => {
+    const btn = document.getElementById(id);
+    if (btn) { btn.textContent = '✉ send log'; btn.disabled = false; }
+  });
+}
+
+async function sendMealEmail() {
+  const pub = getKey('ejs-pub');
+  const svc = getKey('ejs-svc');
+  const tpl = getKey('ejs-tpl');
+  if (!pub || !svc || !tpl) return; // EmailJS not configured — skip silently
+
+  const summary = buildEmailSummary();
+  if (!summary) return; // no results to send
+
+  try {
+    emailjs.init(pub);
+    const toEmail = getKey('to-email') || DEFAULT_TO;
+    await emailjs.send(svc, tpl, {
+      to_email:  toEmail,
+      subject:   summary.subject,
+      message:   summary.body,
+    });
+    showToast('Meal summary sent ✓');
+  } catch(e) {
+    showToast('Email failed — check EmailJS keys');
+    console.error('EmailJS error:', e);
+  }
+}
+
+// ── Nourish summary ────────────────────────────────────────────────────────
+async function generateNourish() {
+  const claudeKey = getKey('claude');
+  if (!claudeKey) { showToast('Claude API key needed for Nourish summary'); return; }
+
+  const aiIds = Object.keys(results).filter(k => results[k] && results[k].total);
+  if (!aiIds.length) { showToast('Run an estimate first'); return; }
+
+  const btn = document.getElementById('nourish-btn');
+  const regenBtn = document.getElementById('nourish-regen-btn');
+  const output = document.getElementById('nourish-output');
+  const section = document.getElementById('nourish-section');
+
+  btn.textContent = '⏳ generating…';
+  btn.disabled = true;
+  regenBtn.disabled = true;
+  output.textContent = 'Synthesizing…';
+  section.style.display = 'block';
+  section.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+
+  // Build a comprehensive data dump of all sessions
+  const mealDesc = document.getElementById('meal').value.trim();
+
+  // Collect all unique items across all AIs, weighted by frequency
+  const allItems = {};
+  aiIds.forEach(id => {
+    (results[id].items || []).forEach(item => {
+      const key = item.name.toLowerCase().replace(/\s+/g, ' ').trim();
+      if (!allItems[key]) allItems[key] = { name: item.name, estimates: [] };
+      allItems[key].estimates.push(item);
+    });
+  });
+
+  // Build consensus items — average across AIs that mentioned each item
+  const consensusItems = Object.values(allItems).map(entry => {
+    const avg = (field) => Math.round(entry.estimates.reduce((s,e) => s + (e[field]||0), 0) / entry.estimates.length);
+    return { name: entry.name, cal: avg('cal'), pro: avg('pro'), carb: avg('carb'), fat: avg('fat'), satfat: avg('satfat'), fiber: avg('fiber') };
+  }).sort((a,b) => b.cal - a.cal);
+
+  // 5m+ values — max for cal/carb/fat/satfat, min for pro/fiber
+  const pluck = (field, fn) => fn(...aiIds.map(k => results[k].total[field]));
+  const fivemPlus = {
+    cal:    pluck('cal',    Math.max),
+    pro:    pluck('pro',    Math.min),
+    carb:   pluck('carb',   Math.max),
+    fat:    pluck('fat',    Math.max),
+    satfat: pluck('satfat', Math.max),
+    fiber:  pluck('fiber',  Math.min),
+  };
+
+  // Follow-up prose log
+  const followupNotes = aiIds.map(id => {
+    const turns = (rawResponses[id]||[]).filter(r => r.prose);
+    if (!turns.length) return '';
+    return turns.map(r => r.prose).join(' ');
+  }).filter(Boolean).join(' ');
+
+  const dataPrompt = `You are a nutrition logger. Based on the meal data below, write a clean summary for pasting into the Nourish app food diary.
+
+FORMAT RULES:
+- Start with a 1-sentence meal description
+- List each food item on its own line as just the item name and portion (no per-item macros)
+- End with a single TOTALS line using exactly the 5m+ values provided — do not recalculate
+- Format the TOTALS line as: "Totals — Xcal | Xg protein | Xg carbs | Xg fat | Xg sat fat | Xg fiber"
+- Use plain text only, no markdown, no asterisks, no bullets, no headers
+
+MEAL: ${mealDesc || '(no description — from photos)'}
+
+ITEMS (list these by name/portion only):
+${consensusItems.map(i => i.name).join('\n')}
+
+5m+ TOTALS (use these exactly): ${fivemPlus.cal}cal | ${fivemPlus.pro}g protein | ${fivemPlus.carb}g carbs | ${fivemPlus.fat}g fat | ${fivemPlus.satfat}g sat fat | ${fivemPlus.fiber}g fiber
+
+${followupNotes ? 'CORRECTIONS MADE DURING SESSION: ' + followupNotes : ''}
+
+Write the Nourish diary entry now:`;
+
+  try {
+    const resp = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': claudeKey,
+        'anthropic-version': '2023-06-01',
+        'anthropic-dangerous-direct-browser-access': 'true',
+      },
+      body: JSON.stringify({
+        model: 'claude-opus-4-5-20251101',
+        max_tokens: 800,
+        messages: [{ role: 'user', content: dataPrompt }]
+      })
+    });
+    const data = await resp.json();
+    if (data.error) throw new Error(data.error.message);
+    const text = data.content[0].text.trim();
+    output.textContent = text;
+  } catch(e) {
+    output.textContent = 'Error: ' + e.message;
+  }
+
+  btn.textContent = '🥗 copy for Nourish';
+  btn.disabled = false;
+  regenBtn.disabled = false;
+}
+
+function copyNourish() {
+  const text = document.getElementById('nourish-output').textContent;
+  if (!text || text === 'Synthesizing…') return;
+  navigator.clipboard.writeText(text).then(() => {
+    const btn = document.getElementById('nourish-copy-btn');
+    btn.textContent = 'copied ✓';
+    setTimeout(() => btn.textContent = 'copy', 2000);
+  });
+}
+
+// ── New meal ───────────────────────────────────────────────────────────────
+async function newMeal() {
+  // Send summary email before clearing if there are results
+  if (Object.keys(results).some(k => results[k] && results[k].total)) {
+    await sendMealEmail();
+  }
+  results = {};
+  rawResponses = {};
+  histories = {claude:[],openai:[],gemini:[],grok:[]};
+  sessionActive = false;
+  photos = [];
+  followupPhotos = [];
+  renderPhotoGrid();
+  renderFollowupPhotoGrid();
+  document.getElementById('meal').value = '';
+  document.getElementById('cards-section').style.display = 'none';
+  document.getElementById('fivem-section').classList.remove('visible');
+  document.getElementById('full-results').classList.remove('visible');
+  document.getElementById('followup-section').style.display = 'none';
+  ['claude','openai','gemini','grok'].forEach(id=>{
+    setCardState(id,'');
+    document.getElementById('content-'+id).innerHTML = '<span class="waiting">—</span>';
+    document.getElementById('spin-'+id).style.display='none';
+  });
+  document.getElementById('send-log-btn').style.display = 'none';
+  document.getElementById('send-log-btn2').style.display = 'none';
+  document.getElementById('nourish-btn').style.display = 'none';
+  document.getElementById('nourish-section').style.display = 'none';
+  document.getElementById('nourish-output').textContent = '';
+  document.getElementById('meal').focus();
+}
+
+loadKeys();
+renderPhotoGrid();
+</script>
+</body>
+</html>
