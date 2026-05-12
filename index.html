@@ -970,18 +970,6 @@ function buildEmailSummary() {
     return `${AI_CONFIGS[id].label}:\n` + turns.map(r => `  Turn ${r.turn}: ${r.prose}`).join('\n');
   }).filter(Boolean).join('\n\n');
 
-  // Full raw text per AI — all turns
-  const fullRaw = aiIds.map(id => {
-    const turns = rawResponses[id] || [];
-    if (!turns.length) return '';
-    const turnText = turns.map(r => {
-      const prose = r.prose ? `${r.prose}\n\n` : '';
-      const json = JSON.stringify(r.data, null, 2);
-      return `  [Turn ${r.turn}]\n${prose ? prose.split('\n').map(l=>'  '+l).join('\n') : ''}  ${json.split('\n').join('\n  ')}`;
-    }).join('\n\n');
-    return `${AI_CONFIGS[id].label}:\n${turnText}`;
-  }).filter(Boolean).join('\n\n' + '─'.repeat(40) + '\n\n');
-
   const body = [
     `MACRO LOG`,
     `${dateStr} at ${timeStr}`,
@@ -1000,9 +988,6 @@ function buildEmailSummary() {
     `── 5m+ CONSERVATIVE CEILING ──`,
     `  Cal: ${plus.cal} | Protein: ${plus.pro}g | Carbs: ${plus.carb}g | Fat: ${plus.fat}g | Sat Fat: ${plus.satfat}g | Fiber: ${plus.fiber}g`,
     followupLog ? `\n── FOLLOW-UP NOTES ──\n${followupLog}` : '',
-    ``,
-    `── FULL AI OUTPUTS ──`,
-    fullRaw,
     ``,
     `— MacroHub`
   ].filter(s => s !== undefined).join('\n');
@@ -1106,25 +1091,23 @@ async function generateNourish() {
     return turns.map(r => r.prose).join(' ');
   }).filter(Boolean).join(' ');
 
-  const dataPrompt = `You are a nutrition logger. Based on the meal data below, write a clean, human-readable summary that can be pasted into the Nourish app food diary. 
+  const dataPrompt = `You are a nutrition logger. Based on the meal data below, write a clean summary for pasting into the Nourish app food diary.
 
 FORMAT RULES:
 - Start with a 1-sentence meal description
-- List each food item on its own line like: "Item name — Xcal, Xg protein, Xg carbs, Xg fat, Xg sat fat, Xg fiber"
-- End with a TOTALS line using the consensus mean values
-- Use plain text only, no markdown, no asterisks, no headers
-- Be concise — this is for a food diary entry, not a report
+- List each food item on its own line as just the item name and portion (no per-item macros)
+- End with a single TOTALS line using exactly the 5m+ values provided — do not recalculate
+- Format the TOTALS line as: "Totals — Xcal | Xg protein | Xg carbs | Xg fat | Xg sat fat | Xg fiber"
+- Use plain text only, no markdown, no asterisks, no bullets, no headers
 
 MEAL: ${mealDesc || '(no description — from photos)'}
 
-CONSENSUS ITEMS (averaged across ${aiIds.length} AIs):
-${consensusItems.map(i => `${i.name}: ${i.cal}cal, ${i.pro}g pro, ${i.carb}g carb, ${i.fat}g fat, ${i.satfat}g sat fat, ${i.fiber}g fiber`).join('\n')}
+ITEMS (list these by name/portion only):
+${consensusItems.map(i => i.name).join('\n')}
 
-MEAN TOTALS (5m+ conservative ceiling — max cal/carb/fat/sat fat, min protein/fiber across ${aiIds.length} AIs): ${fivemPlus.cal}cal | ${fivemPlus.pro}g protein | ${fivemPlus.carb}g carbs | ${fivemPlus.fat}g fat | ${fivemPlus.satfat}g sat fat | ${fivemPlus.fiber}g fiber
+5m+ TOTALS (use these exactly): ${fivemPlus.cal}cal | ${fivemPlus.pro}g protein | ${fivemPlus.carb}g carbs | ${fivemPlus.fat}g fat | ${fivemPlus.satfat}g sat fat | ${fivemPlus.fiber}g fiber
 
-Use these 5m+ values as the TOTALS line — do not average or recalculate.
-
-${followupNotes ? 'CORRECTIONS/NOTES FROM SESSION: ' + followupNotes : ''}
+${followupNotes ? 'CORRECTIONS MADE DURING SESSION: ' + followupNotes : ''}
 
 Write the Nourish diary entry now:`;
 
