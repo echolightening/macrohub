@@ -230,7 +230,7 @@ table.macro-full { width: 100%; border-collapse: collapse; font-size: 11px; }
         <div class="ai-content" id="content-claude"><span class="waiting">—</span></div>
       </div>
       <div class="ai-card" id="card-openai">
-        <div class="ai-card-header"><div class="ai-dot dot-openai"></div><span class="ai-name name-openai">GPT-4o</span><div class="spinner" id="spin-openai" style="display:none;"></div></div>
+        <div class="ai-card-header"><div class="ai-dot dot-openai"></div><span class="ai-name name-openai">GPT-5.5</span><div class="spinner" id="spin-openai" style="display:none;"></div></div>
         <div class="ai-content" id="content-openai"><span class="waiting">—</span></div>
       </div>
       <div class="ai-card" id="card-gemini">
@@ -306,12 +306,13 @@ table.macro-full { width: 100%; border-collapse: collapse; font-size: 11px; }
 <script>
 // ── Constants ──────────────────────────────────────────────────────────────
 const MAX_PHOTOS = 20;
-const BATCH_SIZE = 10; // max per API call (GPT-4o limit)
-const RESIZE_MAX = 1500; // px — keeps Claude happy on dimension limit
+const BATCH_SIZE = 10; // max images per API call (app-defined batching, not a hard provider limit)
+const RESIZE_MAX = 1500; // px — keeps every AI happy on dimension limit
+const MAX_PDF_PAGES = 10; // per PDF — pages beyond this are dropped with a toast note
 
 const AI_CONFIGS = {
   claude: { label:'Claude',  color:'#d4956a' },
-  openai: { label:'GPT-4o', color:'#74c99a' },
+  openai: { label:'GPT-5.5', color:'#74c99a' },
   gemini: { label:'Gemini', color:'#7eb8f7' },
   grok:   { label:'Grok',   color:'#c4b5f7' },
 };
@@ -611,24 +612,28 @@ function buildImageParts_Gemini(batch, notes, isFollowup) {
 
 // ── API calls ──────────────────────────────────────────────────────────────
 
-// Claude
+// Claude — Fable 5, with transparent Opus 4.8 fallback on a safety-classifier decline
 async function callClaude(messages, key) {
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method:'POST',
-    headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
-    body:JSON.stringify({model:'claude-opus-4-5-20251101',max_tokens:1500,system:PROMPT_SYSTEM,messages})
+    headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true','anthropic-beta':'server-side-fallback-2026-06-01'},
+    body:JSON.stringify({model:'claude-fable-5',max_tokens:1500,system:PROMPT_SYSTEM,messages,fallbacks:[{model:'claude-opus-4-8'}],output_config:{effort:'medium'}})
   });
   const d = await r.json();
   if (!r.ok || d.error) throw new Error(`Claude ${r.status}: ${d.error?.message || JSON.stringify(d)}`);
-  return d.content[0].text;
+  if (d.stop_reason === 'refusal') throw new Error('Claude declined this request');
+  // content may include non-text blocks (thinking, fallback markers) — never assume content[0] is text
+  const textBlock = (d.content || []).find(b => b.type === 'text');
+  if (!textBlock) throw new Error('Claude declined this request');
+  return textBlock.text;
 }
 
-// OpenAI
+// OpenAI — GPT-5.5 (reasoning-model family: requires max_completion_tokens, rejects max_tokens)
 async function callOpenAI(messages, key) {
   const r = await fetch('https://api.openai.com/v1/chat/completions', {
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
-    body:JSON.stringify({model:'gpt-4o',max_tokens:1500,messages:[{role:'system',content:PROMPT_SYSTEM},...messages]})
+    body:JSON.stringify({model:'gpt-5.5',max_completion_tokens:1500,messages:[{role:'system',content:PROMPT_SYSTEM},...messages]})
   });
   const d = await r.json(); if (d.error) throw new Error(d.error.message);
   return d.choices[0].message.content;
@@ -650,7 +655,7 @@ function toGeminiContents(messages) {
 }
 async function callGemini(messages, key) {
   const contents = toGeminiContents(messages);
-  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash-lite:generateContent?key=${key}`, {
+  const r = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent?key=${key}`, {
     method:'POST', headers:{'Content-Type':'application/json'},
     body:JSON.stringify({
       contents,
@@ -1119,16 +1124,22 @@ Write the Nourish diary entry now:`;
         'x-api-key': claudeKey,
         'anthropic-version': '2023-06-01',
         'anthropic-dangerous-direct-browser-access': 'true',
+        'anthropic-beta': 'server-side-fallback-2026-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-opus-4-5-20251101',
+        model: 'claude-fable-5',
         max_tokens: 800,
-        messages: [{ role: 'user', content: dataPrompt }]
+        messages: [{ role: 'user', content: dataPrompt }],
+        fallbacks: [{ model: 'claude-opus-4-8' }],
+        output_config: { effort: 'medium' }
       })
     });
     const data = await resp.json();
     if (data.error) throw new Error(data.error.message);
-    const text = data.content[0].text.trim();
+    if (data.stop_reason === 'refusal') throw new Error('Claude declined this request');
+    const textBlock = (data.content || []).find(b => b.type === 'text');
+    if (!textBlock) throw new Error('Claude declined this request');
+    const text = textBlock.text.trim();
     output.textContent = text;
   } catch(e) {
     output.textContent = 'Error: ' + e.message;
