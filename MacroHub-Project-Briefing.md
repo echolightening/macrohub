@@ -73,12 +73,23 @@ chain still ends in `stop_reason: "refusal"`, the UI shows a plain "Claude decli
 request" error instead of crashing on empty content. Both Claude call sites (the main
 estimator and the Nourish-summary generator) use this pattern identically.
 
-### GPT-5.5 — token parameter
+### GPT-5.5 — token parameter and reasoning budget
 
 GPT-5.5 is in the reasoning-model family and rejects the legacy `max_tokens` parameter
 with a 400 ("Unsupported parameter"); use `max_completion_tokens` instead. Image content
 parts (`image_url`) are unchanged from the GPT-4o era — GPT-5.5 accepts vision input the
 same way.
+
+**Reasoning-budget gotcha (bit us in v1):** hidden reasoning tokens count *inside*
+`max_completion_tokens`. With a small cap (1500), the model spends the whole budget on
+reasoning and returns `finish_reason: "length"` with an **empty content string** — which
+surfaced as "no JSON found in response". The fix (v1b): `max_completion_tokens: 16000`
+(only tokens actually used are billed) plus `reasoning_effort: 'low'` (this is table
+extraction, not a reasoning task; default is `medium`). `'none'` is the literal minimum
+for GPT-5.5 but had a documented bug when combined with `max_completion_tokens` on this
+model family, so `'low'` is the lowest clean setting. `callOpenAI()` also now throws a
+descriptive error (including `finish_reason`) if `message.content` comes back
+empty/whitespace, instead of letting `parseResponse()` mislabel it.
 
 ### Gemini — endpoint
 
@@ -136,10 +147,17 @@ JSON shape:
 - Color coding: Claude `#d4956a`, GPT-5.5 `#74c99a`, Gemini `#7eb8f7`, Grok `#c4b5f7`
 - Follow-up explanation shown in card above numbers after corrections
 - "raw ↕" toggle on each full table card — shows all turns with JSON + prose per turn
-- **Per-AI "⧉ copy" button** on each card (appears once that AI has a result): copies
-  just that AI's latest itemized breakdown + totals as plain paste-friendly text — for
-  when one AI nails a meal but the 5m+ conservative ceiling is off. Independent of the
+- **Per-AI "⧉ copy" button** on each mini-card (appears once that AI has a result) AND
+  on each full-table card header (always present there — the table only renders once a
+  result exists): both call the same `copyAiResult(id)` formatter, copying that AI's
+  latest itemized breakdown + totals as plain paste-friendly text — for when one AI
+  nails a meal but the 5m+ conservative ceiling is off. Independent of the
   "🥗 copy for Nourish" button, which stays a session-wide consensus summary.
+- **Muted model-ID labels** (`.ai-model`, tiny/dim monospace) on every mini-card and
+  full-table header, e.g. "fable-5" / "gpt-5.5" / "gemini-3.5-flash" / "grok-4.3".
+  Single source of truth: the `model` field on `AI_CONFIGS` — the mini-card spans are
+  populated from it at load, and `renderFull()` reads it directly, so a future model
+  swap only needs the `AI_CONFIGS` string updated (plus the actual call site).
 
 ### 5m stats
 - **5m — calories:** Min / Mean / Median / Mode / Max across all AI calorie totals
