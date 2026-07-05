@@ -323,11 +323,18 @@ const BATCH_SIZE = 10; // max images per API call (app-defined batching, not a h
 const RESIZE_MAX = 1500; // px — keeps every AI happy on dimension limit
 const MAX_PDF_PAGES = 10; // per PDF — pages beyond this are dropped with a toast note
 
+// ── Pipeline door ──────────────────────────────────────────────────────────
+// 'two-stage': premium lanes run cheap EXTRACT (vision, history) → frontier TEXT-ONLY
+//              JUDGE. Frontier models never see images; cost stops scaling with photos.
+// 'direct':    reverts both premium lanes to the single frontier call (pre-v1d behavior).
+const PIPELINE_MODE = 'two-stage';
+const TWO_STAGE = PIPELINE_MODE === 'two-stage';
+
 // `model` is the single source of truth for the muted model-ID label shown on the
 // mini-cards and full-table headers — future model swaps update the UI automatically.
 const AI_CONFIGS = {
-  claude: { label:'Claude',  color:'#d4956a', model:'fable-5' },
-  openai: { label:'GPT-5.5', color:'#74c99a', model:'gpt-5.5' },
+  claude: { label:'Claude',  color:'#d4956a', model: TWO_STAGE ? 'sonnet-5→fable-5' : 'fable-5' },
+  openai: { label:'GPT-5.5', color:'#74c99a', model: TWO_STAGE ? 'gpt-4o→gpt-5.5' : 'gpt-5.5' },
   gemini: { label:'Gemini', color:'#7eb8f7', model:'gemini-3.5-flash' },
   grok:   { label:'Grok',   color:'#c4b5f7', model:'grok-4.3' },
 };
@@ -561,7 +568,7 @@ function renderFull(id, data) {
   const rows = data.items.map(i=>`<tr><td>${i.name}</td><td>${i.cal}</td><td>${i.pro}</td><td>${i.carb}</td><td>${i.fat}</td><td>${i.satfat}</td><td>${i.fiber}</td></tr>`).join('');
   const t = data.total;
   const rawHistory = (rawResponses[id]||[]).map((r,i)=>
-    `<div style="margin-bottom:10px;"><div style="font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Turn ${r.turn}${r.prose?' · note below':''}</div>${r.prose?`<div style="font-size:11px;color:var(--muted);margin-bottom:6px;">${r.prose}</div>`:''}<pre style="font-size:10px;color:var(--dim);white-space:pre-wrap;word-break:break-all;background:var(--bg);padding:8px;border-radius:var(--rs);overflow-x:auto;">${JSON.stringify(r.data,null,2)}</pre></div>`
+    `<div style="margin-bottom:10px;"><div style="font-size:9px;color:var(--dim);text-transform:uppercase;letter-spacing:.06em;margin-bottom:4px;">Turn ${r.turn}${r.stage?' · '+r.stage:''}${r.prose?' · note below':''}</div>${r.prose?`<div style="font-size:11px;color:var(--muted);margin-bottom:6px;">${r.prose}</div>`:''}<pre style="font-size:10px;color:var(--dim);white-space:pre-wrap;word-break:break-all;background:var(--bg);padding:8px;border-radius:var(--rs);overflow-x:auto;">${JSON.stringify(r.data,null,2)}</pre></div>`
   ).join('');
   const rawId = `raw-${id}`;
   return `<div class="full-card">
@@ -736,8 +743,26 @@ function buildImageParts_Gemini(batch, notes, isFollowup) {
 
 // ── API calls ──────────────────────────────────────────────────────────────
 
-// Claude — Fable 5, with transparent Opus 4.8 fallback on a safety-classifier decline
+// Claude lane. Two-stage: stage-1 EXTRACT on Sonnet 5 (all vision + conversation
+// history, standard call, no fallback beta). Direct door: single Fable 5 call with
+// the Opus 4.8 fallback (pre-v1d behavior). The Fable judge lives in judgeClaude().
 async function callClaude(messages, key) {
+  if (TWO_STAGE) {
+    const r = await fetch('https://api.anthropic.com/v1/messages', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+      body:JSON.stringify({model:'claude-sonnet-5',max_tokens:1500,system:PROMPT_SYSTEM,messages})
+    });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(`Claude ${r.status}: ${d.error?.message || JSON.stringify(d)}`);
+    if (d.stop_reason === 'refusal') throw new Error('Claude declined this request');
+    // Sonnet 5 runs adaptive thinking by default — thinking blocks appear in content,
+    // so always filter for the text block rather than assuming content[0].
+    const textBlock = (d.content || []).find(b => b.type === 'text');
+    if (!textBlock) throw new Error(`Claude returned no text (stop_reason: ${d.stop_reason || 'unknown'})`);
+    return textBlock.text;
+  }
+  // 'direct' door — Fable 5 with transparent Opus 4.8 fallback on a safety-classifier decline
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method:'POST',
     headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true','anthropic-beta':'server-side-fallback-2026-06-01'},
@@ -752,12 +777,25 @@ async function callClaude(messages, key) {
   return textBlock.text;
 }
 
-// OpenAI — GPT-5.5 (reasoning-model family: requires max_completion_tokens, rejects max_tokens).
-// Hidden reasoning tokens count INSIDE max_completion_tokens, so the cap must be generous
-// (only tokens actually used are billed) and reasoning_effort is pinned 'low' — this is
-// table extraction, not a reasoning task. 'none' is the literal minimum but had a
-// documented bug when combined with max_completion_tokens on this model family.
+// OpenAI lane. Two-stage: stage-1 EXTRACT on gpt-4o (classic non-reasoning model —
+// plain max_tokens is correct here). Direct door: single GPT-5.5 call (pre-v1d
+// behavior; reasoning family — requires max_completion_tokens, rejects max_tokens;
+// hidden reasoning tokens count inside the cap, hence 16000 + reasoning_effort 'low').
+// The GPT-5.5 judge lives in judgeOpenAI().
 async function callOpenAI(messages, key) {
+  if (TWO_STAGE) {
+    const r = await fetch('https://api.openai.com/v1/chat/completions', {
+      method:'POST',
+      headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+      body:JSON.stringify({model:'gpt-4o',max_tokens:1500,messages:[{role:'system',content:PROMPT_SYSTEM},...messages]})
+    });
+    const d = await r.json(); if (d.error) throw new Error(d.error.message);
+    const choice = d.choices?.[0];
+    const content = (choice?.message?.content || '').trim();
+    if (!content) throw new Error(`GPT returned no visible text (finish_reason: ${choice?.finish_reason || 'unknown'})`);
+    return content;
+  }
+  // 'direct' door — GPT-5.5 single call
   const r = await fetch('https://api.openai.com/v1/chat/completions', {
     method:'POST',
     headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
@@ -768,6 +806,53 @@ async function callOpenAI(messages, key) {
   const content = (choice?.message?.content || '').trim();
   if (!content) throw new Error(`GPT returned no visible text (finish_reason: ${choice?.finish_reason || 'unknown'}) — reasoning likely consumed the token cap`);
   return content;
+}
+
+// ── Stage-2 frontier judges (text-only — images NEVER reach these calls) ─────
+const JUDGE_SYSTEM = `You are a nutrition QA judge. You receive a meal description and a draft macro table (JSON) produced by another model. Verify plausibility: realistic portion sizes, per-item macro values, and arithmetic (item macros should sum to the totals; calories should be roughly consistent with 4/4/9 kcal per gram of protein/carbs/fat). Correct anything implausible or inconsistent — otherwise keep values as-is. Return ONLY the corrected JSON object in exactly the same shape — no markdown, no backticks, no explanation.`;
+
+function buildJudgePrompt(data, prose) {
+  const meal = document.getElementById('meal').value.trim();
+  return `MEAL DESCRIPTION: ${meal || '(none — photo-based estimate; judge portions from the item names)'}` +
+    (prose ? `\n\nEXTRACTOR'S NOTE ON THE LATEST CORRECTION: ${prose}` : '') +
+    `\n\nDRAFT MACRO TABLE (JSON):\n${JSON.stringify(data)}\n\nReturn the corrected JSON only.`;
+}
+
+async function judgeClaude(data, prose, key) {
+  const r = await fetch('https://api.anthropic.com/v1/messages', {
+    method:'POST',
+    headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true','anthropic-beta':'server-side-fallback-2026-06-01'},
+    body:JSON.stringify({model:'claude-fable-5',max_tokens:1200,system:JUDGE_SYSTEM,messages:[{role:'user',content:buildJudgePrompt(data, prose)}],fallbacks:[{model:'claude-opus-4-8'}],output_config:{effort:'low'}})
+  });
+  const d = await r.json();
+  if (!r.ok || d.error) throw new Error(`Claude judge ${r.status}: ${d.error?.message || JSON.stringify(d)}`);
+  if (d.stop_reason === 'refusal') throw new Error('Claude judge declined');
+  const textBlock = (d.content || []).find(b => b.type === 'text');
+  if (!textBlock) throw new Error('Claude judge returned no text');
+  return parseResponse(textBlock.text).data;
+}
+
+async function judgeOpenAI(data, prose, key) {
+  const r = await fetch('https://api.openai.com/v1/chat/completions', {
+    method:'POST',
+    headers:{'Content-Type':'application/json','Authorization':'Bearer '+key},
+    body:JSON.stringify({model:'gpt-5.5',max_completion_tokens:16000,reasoning_effort:'low',messages:[{role:'system',content:JUDGE_SYSTEM},{role:'user',content:buildJudgePrompt(data, prose)}]})
+  });
+  const d = await r.json(); if (d.error) throw new Error(d.error.message);
+  const choice = d.choices?.[0];
+  const content = (choice?.message?.content || '').trim();
+  if (!content) throw new Error(`GPT judge returned no visible text (finish_reason: ${choice?.finish_reason || 'unknown'})`);
+  return parseResponse(content).data;
+}
+
+// Judge one lane's final merged table. Stateless: each call sees only the meal text +
+// the draft JSON (+ extractor prose on follow-ups) — no conversation history, no images.
+async function judgeResult(id, data, prose, key) {
+  const judged = id === 'claude' ? await judgeClaude(data, prose, key)
+               : id === 'openai' ? await judgeOpenAI(data, prose, key)
+               : data;
+  if (!judged || !judged.total || !Array.isArray(judged.items)) throw new Error('Judge returned malformed JSON');
+  return judged;
 }
 
 // Gemini — converts OpenAI-style messages to Gemini contents format
@@ -811,6 +896,10 @@ async function callGrok(messages, key, hasImages) {
 }
 
 // ── Per-AI session runner ──────────────────────────────────────────────────
+// In two-stage mode the premium lanes' rawResponses entries are tagged so the raw ↕
+// toggle shows the pipeline: every stage-1 parse is 'extract', the frontier pass is 'judge'.
+function stageTag(id) { return (TWO_STAGE && (id === 'claude' || id === 'openai')) ? 'extract' : undefined; }
+
 async function runAI(id, userContent, isFollowup) {
   const key = getKey(id);
   if (!key) return;
@@ -860,7 +949,7 @@ async function runAI(id, userContent, isFollowup) {
         const { data: batchResult, prose } = parseResponse(rawText);
         finalResult = mergeResults(finalResult, batchResult);
         if (!rawResponses[id]) rawResponses[id] = [];
-        rawResponses[id].push({ turn: turnNum + bi, data: batchResult, prose });
+        rawResponses[id].push({ turn: turnNum + bi, data: batchResult, prose, stage: stageTag(id) });
       }
 
     } else {
@@ -911,7 +1000,7 @@ async function runAI(id, userContent, isFollowup) {
             const { data: bd, prose: bp } = parseResponse(bRaw);
             batchResult = mergeResults(batchResult, bd);
             if (!rawResponses[id]) rawResponses[id] = [];
-            rawResponses[id].push({ turn: turnNum, data: bd, prose: bp });
+            rawResponses[id].push({ turn: turnNum, data: bd, prose: bp, stage: stageTag(id) });
           }
           finalResult = batchResult;
           finalProse = (rawResponses[id]||[]).slice(-1)[0]?.prose || '';
@@ -934,7 +1023,7 @@ async function runAI(id, userContent, isFollowup) {
           finalResult = data;
           finalProse = prose;
           if (!rawResponses[id]) rawResponses[id] = [];
-          rawResponses[id].push({ turn: turnNum, data, prose });
+          rawResponses[id].push({ turn: turnNum, data, prose, stage: stageTag(id) });
         }
       } else {
         const textContent = PROMPT_INITIAL_TEXT + meal;
@@ -954,13 +1043,31 @@ async function runAI(id, userContent, isFollowup) {
         finalResult = data;
         finalProse = prose;
         if (!rawResponses[id]) rawResponses[id] = [];
-        rawResponses[id].push({ turn: turnNum, data, prose });
+        rawResponses[id].push({ turn: turnNum, data, prose, stage: stageTag(id) });
+      }
+    }
+
+    // ── Stage-2: frontier text-only judge on the final merged table ──────────
+    // Stateless per meal-state: sees only meal text + stage-1's JSON (+ prose note on
+    // follow-ups) — never images, never conversation history. If the judge fails for
+    // ANY reason, show stage-1's result with an "unjudged" marker instead of erroring.
+    let judgeFailed = false;
+    if (TWO_STAGE && (id === 'claude' || id === 'openai') && finalResult) {
+      try {
+        const judgedData = await judgeResult(id, finalResult, isFollowup ? finalProse : '', key);
+        if (!rawResponses[id]) rawResponses[id] = [];
+        const lastTurn = (rawResponses[id].slice(-1)[0] || {}).turn || turnNum;
+        rawResponses[id].push({ turn: lastTurn, data: judgedData, prose: '', stage: 'judge' });
+        finalResult = judgedData;
+      } catch(e) {
+        judgeFailed = true;
       }
     }
 
     results[id] = finalResult;
     setCardState(id, 'done');
-    document.getElementById('content-'+id).innerHTML = renderMini(finalResult, finalProse);
+    document.getElementById('content-'+id).innerHTML = renderMini(finalResult, finalProse) +
+      (judgeFailed ? '<div style="font-size:9px;color:#f4a460;margin-top:6px;letter-spacing:0.04em;">unjudged</div>' : '');
     document.getElementById('copy-'+id).style.display = 'inline-block';
     updateFiveM();
 
@@ -1250,6 +1357,7 @@ ${followupNotes ? 'CORRECTIONS MADE DURING SESSION: ' + followupNotes : ''}
 Write the Nourish diary entry now:`;
 
   try {
+    // Sonnet 5 direct — this is formatting, not judgment; no frontier model, no fallback needed
     const resp = await fetch('https://api.anthropic.com/v1/messages', {
       method: 'POST',
       headers: {
@@ -1257,14 +1365,11 @@ Write the Nourish diary entry now:`;
         'x-api-key': claudeKey,
         'anthropic-version': '2023-06-01',
         'anthropic-dangerous-direct-browser-access': 'true',
-        'anthropic-beta': 'server-side-fallback-2026-06-01',
       },
       body: JSON.stringify({
-        model: 'claude-fable-5',
+        model: 'claude-sonnet-5',
         max_tokens: 800,
-        messages: [{ role: 'user', content: dataPrompt }],
-        fallbacks: [{ model: 'claude-opus-4-8' }],
-        output_config: { effort: 'low' }
+        messages: [{ role: 'user', content: dataPrompt }]
       })
     });
     const data = await resp.json();

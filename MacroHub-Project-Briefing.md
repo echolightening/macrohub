@@ -35,12 +35,15 @@ GitHub Pages auto-deploys from `main` within ~60 seconds of a push.
 
 ## APIs called
 
-| ID | Label | Endpoint | Model |
+| ID | Label | Endpoint | Pipeline (two-stage mode) |
 |---|---|---|---|
-| `claude` | Claude | `api.anthropic.com/v1/messages` | `claude-fable-5` (server-side fallback to `claude-opus-4-8` on a safety-classifier refusal) |
-| `openai` | GPT-5.5 | `api.openai.com/v1/chat/completions` | `gpt-5.5` |
-| `gemini` | Gemini | `generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent` | `gemini-3.5-flash` |
-| `grok` | Grok | `api.x.ai/v1/chat/completions` | `grok-4.3` |
+| `claude` | Claude | `api.anthropic.com/v1/messages` | EXTRACT `claude-sonnet-5` → JUDGE `claude-fable-5` (judge falls back server-side to `claude-opus-4-8` on a safety-classifier refusal) |
+| `openai` | GPT-5.5 | `api.openai.com/v1/chat/completions` | EXTRACT `gpt-4o` → JUDGE `gpt-5.5` |
+| `gemini` | Gemini | `generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:generateContent` | `gemini-3.5-flash` (single call) |
+| `grok` | Grok | `api.x.ai/v1/chat/completions` | `grok-4.3` (single call) |
+
+Nourish summary generator: `claude-sonnet-5` direct (formatting, not judgment — no
+judge, no fallback).
 
 Model refresh sources (verified 2026-07-04): OpenAI model page
 `developers.openai.com/api/docs/models/gpt-5.5` (model ID, vision support, 128K max
@@ -49,18 +52,50 @@ with a 400 and requires `max_completion_tokens`; Google's
 `ai.google.dev/gemini-api/docs/generate-content/whats-new-gemini-3.5` (model path,
 `v1beta` still current, `generateContent` request shape unchanged).
 
-### Claude — headers and body
+### The two-stage EXTRACT → JUDGE pipeline (v1d) and why
+
+**Economics (the reason this exists — Fable billing is real, $9 posted in week 1):**
+photos are the expensive part of a vision request, and they were being re-sent to
+frontier-priced models on every turn. In two-stage mode, **photos bill only to the
+cheap extractors** (Sonnet 5 / gpt-4o); the frontier models (Fable 5 / GPT-5.5) are
+text-only judges that see ≤~2k tokens per meal (meal description + draft JSON + prose
+note). Per-meal Claude-lane cost drops roughly 3–5×, and frontier cost **stops scaling
+with photo count entirely** — a 20-photo meal costs the same at the judge stage as a
+text-only one.
+
+**Shape:** stage-1 EXTRACT does everything the old single call did — vision, full
+prompts, per-AI conversation history (histories[] holds stage-1 turns only). Stage-2
+JUDGE is stateless per meal-state: input = meal description + stage-1's final merged
+JSON (+ stage-1's prose note on follow-ups), **never images, never history**; system
+prompt = verify plausibility/portions/math, correct if needed, return the same JSON
+shape only. The card displays the judged table; `results[id]`, 5m/5m+, email, and
+Nourish all consume the judged numbers. Both stages are stored in `rawResponses`
+tagged `stage: 'extract'` / `'judge'`, so the raw ↕ toggle shows the full pipeline.
+Batched photo runs are judged ONCE on the final merged table, not per batch.
+
+**Judge failure is graceful:** if stage-2 fails for any reason (network, refusal,
+malformed JSON), the card shows stage-1's result with a small amber "unjudged" marker
+instead of erroring — a degraded answer beats no answer for a daily logging tool.
+
+**The door:** `PIPELINE_MODE` const at the top of the script. `'two-stage'` (current)
+or `'direct'`, which reverts both premium lanes to their pre-v1d single-call behavior
+(Fable 5 + Opus fallback / GPT-5.5) — both code paths are kept reachable, so the
+revert is a one-word edit. Model labels derive from the same door via `AI_CONFIGS`
+(`sonnet-5→fable-5`, `gpt-4o→gpt-5.5` in two-stage; `fable-5`, `gpt-5.5` in direct).
+
+### Claude judge — headers and body (stage-2 only)
 
 ```
 anthropic-dangerous-direct-browser-access: true
-anthropic-beta: server-side-fallback-2026-06-01
+anthropic-beta: server-side-fallback-2026-06-01   ← judge + direct door only, NOT stage-1
 anthropic-version: 2023-06-01
 ```
 ```json
 {
   "model": "claude-fable-5",
+  "max_tokens": 1200,
   "fallbacks": [{"model": "claude-opus-4-8"}],
-  "output_config": {"effort": "medium"}
+  "output_config": {"effort": "low"}
 }
 ```
 **The fallback pattern:** Fable 5's safety classifiers can decline a request
@@ -68,24 +103,25 @@ anthropic-version: 2023-06-01
 transparently re-serves a declined request on Opus 4.8 inside the same call — no client
 retry logic needed. Response content blocks may include non-`text` types (`thinking` with
 empty text, `fallback` markers), so text extraction filters `content` for
-`block.type === 'text'` rather than assuming `content[0]` is text. If the whole fallback
-chain still ends in `stop_reason: "refusal"`, the UI shows a plain "Claude declined this
-request" error instead of crashing on empty content. Both Claude call sites (the main
-estimator and the Nourish-summary generator) use this pattern identically.
+`block.type === 'text'` rather than assuming `content[0]` is text — this filtering also
+applies to the Sonnet 5 extractor and Nourish calls, since Sonnet 5 runs adaptive
+thinking by default and emits thinking blocks in `content`. If the whole fallback chain
+still ends in refusal, the judge throws → the lane falls back to the unjudged stage-1
+result (see above); in `'direct'` mode the card shows "Claude declined this request".
 
 ### GPT-5.5 — token parameter and reasoning budget
 
 GPT-5.5 is in the reasoning-model family and rejects the legacy `max_tokens` parameter
-with a 400 ("Unsupported parameter"); use `max_completion_tokens` instead. Image content
-parts (`image_url`) are unchanged from the GPT-4o era — GPT-5.5 accepts vision input the
-same way.
+with a 400 ("Unsupported parameter"); use `max_completion_tokens` instead. In two-stage
+mode GPT-5.5 is the text-only judge; the gpt-4o extractor is a classic non-reasoning
+model and keeps plain `max_tokens: 1500`.
 
 **Reasoning-budget gotcha (bit us in v1):** hidden reasoning tokens count *inside*
 `max_completion_tokens`. With a small cap (1500), the model spends the whole budget on
 reasoning and returns `finish_reason: "length"` with an **empty content string** — which
 surfaced as "no JSON found in response". The fix (v1b): `max_completion_tokens: 16000`
 (only tokens actually used are billed) plus `reasoning_effort: 'low'` (this is table
-extraction, not a reasoning task; default is `low`). `'none'` is the literal minimum
+extraction, not a reasoning task; default is `medium`). `'none'` is the literal minimum
 for GPT-5.5 but had a documented bug when combined with `max_completion_tokens` on this
 model family, so `'low'` is the lowest clean setting. `callOpenAI()` also now throws a
 descriptive error (including `finish_reason`) if `message.content` comes back
@@ -174,8 +210,9 @@ JSON shape:
 
 ### Nourish summary
 - "🥗 copy for Nourish" button appears after first estimates complete
-- Calls Claude (Fable 5, same fallback pattern as the main estimator) with all session
-  data — consensus items (averaged per item across AIs) + 5m+ totals
+- Calls Claude Sonnet 5 directly (formatting, not judgment — no judge stage, no
+  fallback param) with all session data — consensus items (averaged per item across
+  AIs) + 5m+ totals
 - Returns plain-text food diary entry
 - One-tap copy button + ↺ regenerate button
 - Uses 5m+ values (not mean) for the totals line
@@ -267,7 +304,13 @@ the single source of truth for both.
 - `parseResponse(text)` returns `{data, prose}` — use this not `parseJSON` for follow-up responses
 - `mergeResults(a, b)` combines two JSON results by concatenating items and summing totals
 - Gemini conversation history uses a different format (parts array) — see `toGeminiContents()`
-- Claude call sites (main estimator + Nourish) both use the Fable 5 + Opus 4.8 fallback
-  pattern — keep them in sync if either changes
+- Anthropic call sites: `callClaude()` two-stage branch = Sonnet 5 extractor;
+  `judgeClaude()` = Fable 5 + Opus 4.8 fallback (the only routine call that uses the
+  fallback beta); `callClaude()` direct branch = Fable 5 + fallback (door revert path);
+  Nourish = Sonnet 5 plain. All four filter `content` for `type === 'text'` — keep
+  that hardening in sync if any of them changes
+- `PIPELINE_MODE` is the two-stage/direct door — flip to `'direct'` to revert both
+  premium lanes to single frontier calls; don't delete the direct branches, they ARE
+  the revert path
 - This repo is **public** — do not add operator-personal context (names, habits,
   routines) to this briefing or to code comments; keep it technical/architectural only
