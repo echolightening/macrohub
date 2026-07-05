@@ -9,6 +9,7 @@
 <meta name="theme-color" content="#0a0a0a">
 <title>MacroHub</title>
 <script src="https://cdn.jsdelivr.net/npm/@emailjs/browser@4/dist/email.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
 <style>
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 :root {
@@ -100,6 +101,8 @@ textarea::placeholder { color: var(--dim); }
 .dot-gemini { background: var(--gemini); } .name-gemini { color: var(--gemini); }
 .dot-grok   { background: var(--grok);   } .name-grok   { color: var(--grok);   }
 .ai-turn { font-size: 9px; color: var(--dim); margin-left: auto; letter-spacing: 0.04em; }
+.ai-copy-btn { background: none; border: 1px solid var(--border2); color: var(--dim); font-family: var(--font-mono); font-size: 10px; border-radius: var(--rs); padding: 2px 6px; cursor: pointer; margin-left: auto; -webkit-tap-highlight-color: transparent; }
+.ai-copy-btn:active { opacity: 0.6; }
 .ai-content { font-size: 12px; line-height: 1.6; color: var(--text); }
 .spinner { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--border2); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.7s linear infinite; margin-left: auto; }
 @keyframes spin { to { transform: rotate(360deg); } }
@@ -200,6 +203,15 @@ table.macro-full { width: 100%; border-collapse: collapse; font-size: 11px; }
     <div style="border-top:1px solid var(--border);margin:12px 0 14px;"></div>
     <div class="key-row"><label>Send meal logs to</label><input type="email" id="key-to-email" placeholder="echolightening@gmail.com" autocomplete="off" spellcheck="false"></div>
     <button class="save-btn" onclick="saveKeys()">save keys locally</button>
+    <div style="border-top:1px solid var(--border);margin:14px 0;"></div>
+    <div style="display:flex;gap:8px;">
+      <button class="save-btn" onclick="exportSettings()" style="flex:1;">⇪ export settings</button>
+      <button class="save-btn" onclick="toggleImportBox()" style="flex:1;">⇩ import settings</button>
+    </div>
+    <div id="import-box" style="display:none;margin-top:10px;">
+      <textarea id="import-textarea" placeholder="paste exported settings JSON here" style="min-height:70px;font-size:11px;"></textarea>
+      <button class="save-btn" onclick="importSettings()" style="margin-top:8px;">apply</button>
+    </div>
   </div>
 
   <div class="divider"></div>
@@ -212,7 +224,7 @@ table.macro-full { width: 100%; border-collapse: collapse; font-size: 11px; }
     <div class="photo-count" id="photo-count" style="display:none;"></div>
     <div class="photo-grid" id="photo-grid">
       <button class="add-photo-btn" id="add-photo-btn" onclick="void(0)">
-        <input type="file" accept="image/*" multiple id="img-input" onchange="handleImages(event)">
+        <input type="file" accept="image/*,application/pdf" multiple id="img-input" onchange="handleImages(event)">
         <span class="cam-icon">📷</span>
         <span>add photo</span>
       </button>
@@ -226,19 +238,19 @@ table.macro-full { width: 100%; border-collapse: collapse; font-size: 11px; }
     <div class="label">Live results</div>
     <div class="ai-grid">
       <div class="ai-card" id="card-claude">
-        <div class="ai-card-header"><div class="ai-dot dot-claude"></div><span class="ai-name name-claude">Claude</span><div class="spinner" id="spin-claude" style="display:none;"></div></div>
+        <div class="ai-card-header"><div class="ai-dot dot-claude"></div><span class="ai-name name-claude">Claude</span><button class="ai-copy-btn" id="copy-claude" onclick="copyAiResult('claude')" style="display:none;" title="copy for Nourish">⧉</button><div class="spinner" id="spin-claude" style="display:none;"></div></div>
         <div class="ai-content" id="content-claude"><span class="waiting">—</span></div>
       </div>
       <div class="ai-card" id="card-openai">
-        <div class="ai-card-header"><div class="ai-dot dot-openai"></div><span class="ai-name name-openai">GPT-5.5</span><div class="spinner" id="spin-openai" style="display:none;"></div></div>
+        <div class="ai-card-header"><div class="ai-dot dot-openai"></div><span class="ai-name name-openai">GPT-5.5</span><button class="ai-copy-btn" id="copy-openai" onclick="copyAiResult('openai')" style="display:none;" title="copy for Nourish">⧉</button><div class="spinner" id="spin-openai" style="display:none;"></div></div>
         <div class="ai-content" id="content-openai"><span class="waiting">—</span></div>
       </div>
       <div class="ai-card" id="card-gemini">
-        <div class="ai-card-header"><div class="ai-dot dot-gemini"></div><span class="ai-name name-gemini">Gemini</span><div class="spinner" id="spin-gemini" style="display:none;"></div></div>
+        <div class="ai-card-header"><div class="ai-dot dot-gemini"></div><span class="ai-name name-gemini">Gemini</span><button class="ai-copy-btn" id="copy-gemini" onclick="copyAiResult('gemini')" style="display:none;" title="copy for Nourish">⧉</button><div class="spinner" id="spin-gemini" style="display:none;"></div></div>
         <div class="ai-content" id="content-gemini"><span class="waiting">—</span></div>
       </div>
       <div class="ai-card" id="card-grok">
-        <div class="ai-card-header"><div class="ai-dot dot-grok"></div><span class="ai-name name-grok">Grok</span><div class="spinner" id="spin-grok" style="display:none;"></div></div>
+        <div class="ai-card-header"><div class="ai-dot dot-grok"></div><span class="ai-name name-grok">Grok</span><button class="ai-copy-btn" id="copy-grok" onclick="copyAiResult('grok')" style="display:none;" title="copy for Nourish">⧉</button><div class="spinner" id="spin-grok" style="display:none;"></div></div>
         <div class="ai-content" id="content-grok"><span class="waiting">—</span></div>
       </div>
     </div>
@@ -261,7 +273,7 @@ table.macro-full { width: 100%; border-collapse: collapse; font-size: 11px; }
       <div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
         <label style="background:var(--surface2);border:1px solid var(--border2);color:var(--dim);font-family:var(--font-mono);font-size:11px;border-radius:var(--rs);padding:6px 12px;cursor:pointer;-webkit-tap-highlight-color:transparent;">
           📷 add photo
-          <input type="file" accept="image/*" multiple id="fu-img-input" onchange="handleFollowupImages(event)" style="display:none;">
+          <input type="file" accept="image/*,application/pdf" multiple id="fu-img-input" onchange="handleFollowupImages(event)" style="display:none;">
         </label>
         <button class="new-meal-btn" id="nourish-btn" onclick="generateNourish()" style="display:none;font-size:12px;padding:7px 12px;">🥗 copy for Nourish</button>
         <button class="new-meal-btn" id="send-log-btn2" onclick="sendLogManual()" style="display:none;font-size:12px;padding:7px 12px;">✉ send log</button>
@@ -332,6 +344,10 @@ let rawResponses = {}; // {claude: [{turn, text}], ...}
 let histories = { claude:[], openai:[], gemini:[], grok:[] }; // multi-turn per AI
 let sessionActive = false;
 
+if (typeof pdfjsLib !== 'undefined') {
+  pdfjsLib.GlobalWorkerOptions.workerSrc = 'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+}
+
 // ── Keys ───────────────────────────────────────────────────────────────────
 const ALL_KEYS = ['claude','openai','gemini','grok','ejs-pub','ejs-svc','ejs-tpl','to-email'];
 const DEFAULT_TO = 'echolightening@gmail.com';
@@ -359,6 +375,51 @@ function saveKeys() {
 function getKey(n) { return (document.getElementById('key-'+n)||{}).value?.trim() || localStorage.getItem('mk_'+n) || ''; }
 function toggleSettings() { document.getElementById('settings-panel').classList.toggle('open'); }
 
+// ── Settings export/import (for setting up a new device without retyping keys) ──
+function exportSettings() {
+  const blob = {};
+  ALL_KEYS.forEach(k => {
+    const v = localStorage.getItem('mk_'+k);
+    if (v) blob['mk_'+k] = v;
+  });
+  navigator.clipboard.writeText(JSON.stringify(blob, null, 2))
+    .then(() => showToast('Settings copied to clipboard'))
+    .catch(() => showToast('Copy failed — clipboard blocked'));
+}
+
+function toggleImportBox() {
+  const box = document.getElementById('import-box');
+  box.style.display = box.style.display === 'none' ? 'block' : 'none';
+}
+
+// Merge, not replace: only overwrite keys that are present AND non-empty in the
+// pasted blob; every other localStorage setting is left untouched. This lets a
+// machine-only blob (Gemini/xAI/OpenAI) and a phone-only blob (Claude/EmailJS)
+// be imported in either order and end up as the union of both.
+function importSettings() {
+  const raw = document.getElementById('import-textarea').value.trim();
+  if (!raw) { showToast('Paste settings JSON first'); return; }
+  let blob;
+  try {
+    blob = JSON.parse(raw);
+  } catch(e) {
+    showToast('Invalid JSON — import cancelled');
+    return;
+  }
+  let count = 0;
+  Object.keys(blob).forEach(k => {
+    if (k.startsWith('mk_') && typeof blob[k] === 'string' && blob[k].trim() !== '') {
+      localStorage.setItem(k, blob[k]);
+      count++;
+    }
+  });
+  if (!count) { showToast('No mk_ keys found in pasted JSON'); return; }
+  loadKeys();
+  document.getElementById('import-textarea').value = '';
+  document.getElementById('import-box').style.display = 'none';
+  showToast(`Imported ${count} setting${count>1?'s':''} ✓`);
+}
+
 // ── Toast ──────────────────────────────────────────────────────────────────
 function showToast(msg) { const t = document.getElementById('toast'); t.textContent = msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'), 2200); }
 
@@ -385,14 +446,58 @@ async function resizeImage(file) {
   });
 }
 
+// Render one PDF page to the same {b64, mime, thumb} shape as resizeImage(), at the
+// app's existing RESIZE_MAX dimension cap, so it flows through the existing photo pipeline.
+async function pdfPageToPhoto(page, pageNum) {
+  const baseViewport = page.getViewport({ scale: 1 });
+  const maxDim = Math.max(baseViewport.width, baseViewport.height);
+  const scale = maxDim > RESIZE_MAX ? RESIZE_MAX / maxDim : 1;
+  const viewport = page.getViewport({ scale });
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(viewport.width);
+  canvas.height = Math.round(viewport.height);
+  await page.render({ canvasContext: canvas.getContext('2d'), viewport }).promise;
+  const mime = 'image/jpeg';
+  const data = canvas.toDataURL(mime, 0.85);
+  return { b64: data.split(',')[1], mime, thumb: data, label: `PDF p.${pageNum}` };
+}
+
+async function pdfFileToPhotos(file) {
+  try {
+    const buf = await file.arrayBuffer();
+    const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+    const pageCount = Math.min(pdf.numPages, MAX_PDF_PAGES);
+    const out = [];
+    for (let i = 1; i <= pageCount; i++) {
+      out.push(await pdfPageToPhoto(await pdf.getPage(i), i));
+    }
+    if (pdf.numPages > MAX_PDF_PAGES) showToast(`${file.name}: using first ${MAX_PDF_PAGES} of ${pdf.numPages} pages`);
+    return out;
+  } catch (e) {
+    showToast(`Couldn't read PDF: ${file.name}`);
+    return [];
+  }
+}
+
+// Expand a FileList into photo objects — plain images resize as before; PDFs expand
+// into one labeled photo per page, feeding the same downstream pipeline unchanged.
+async function filesToPhotos(files) {
+  const out = [];
+  for (const f of files) {
+    if (f.type === 'application/pdf') out.push(...await pdfFileToPhotos(f));
+    else out.push(await resizeImage(f));
+  }
+  return out;
+}
+
 async function handleImages(e) {
   const files = Array.from(e.target.files);
   const remaining = MAX_PHOTOS - photos.length;
   if (remaining <= 0) { showToast(`Max ${MAX_PHOTOS} photos`); return; }
-  const toAdd = files.slice(0, remaining);
-  if (files.length > remaining) showToast(`Added ${remaining} of ${files.length} (max ${MAX_PHOTOS})`);
-  const processed = await Promise.all(toAdd.map(f => resizeImage(f)));
-  photos.push(...processed);
+  const newPhotos = await filesToPhotos(files);
+  const toAdd = newPhotos.slice(0, remaining);
+  if (newPhotos.length > remaining) showToast(`Added ${remaining} of ${newPhotos.length} (max ${MAX_PHOTOS})`);
+  photos.push(...toAdd);
   renderPhotoGrid();
   document.getElementById('img-input').value = '';
 }
@@ -410,14 +515,15 @@ function renderPhotoGrid() {
   photos.forEach((p, i) => {
     const wrap = document.createElement('div');
     wrap.className = 'photo-thumb-wrap';
-    wrap.innerHTML = `<img class="photo-thumb" src="${p.thumb}"><button class="photo-thumb-remove" onclick="removePhoto(${i})">✕</button>`;
+    const labelHtml = p.label ? `<div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.65);color:#f0ede8;font-size:8px;text-align:center;padding:2px 0;line-height:1.2;">${p.label}</div>` : '';
+    wrap.innerHTML = `<img class="photo-thumb" src="${p.thumb}">${labelHtml}<button class="photo-thumb-remove" onclick="removePhoto(${i})">✕</button>`;
     grid.appendChild(wrap);
   });
 
   if (photos.length < MAX_PHOTOS) {
     const btn = document.createElement('button');
     btn.className = 'add-photo-btn';
-    btn.innerHTML = `<input type="file" accept="image/*" multiple id="img-input" onchange="handleImages(event)"><span class="cam-icon">📷</span><span>${photos.length ? 'add more' : 'add photo'}</span>`;
+    btn.innerHTML = `<input type="file" accept="image/*,application/pdf" multiple id="img-input" onchange="handleImages(event)"><span class="cam-icon">📷</span><span>${photos.length ? 'add more' : 'add photo'}</span>`;
     grid.appendChild(btn);
   }
 
@@ -474,6 +580,19 @@ function renderFull(id, data) {
 function toggleRaw(id) {
   const el = document.getElementById(id);
   if (el) el.style.display = el.style.display === 'none' ? 'block' : 'none';
+}
+
+// Copy one AI's latest result as plain paste-friendly text (same spirit as the
+// Nourish summary output) — for when that AI nailed it but the 5m+ ceiling is off.
+function copyAiResult(id) {
+  const data = results[id];
+  if (!data || !data.total) { showToast('No result yet for ' + AI_CONFIGS[id].label); return; }
+  const lines = data.items.map(i => `${i.name}: ${i.cal}cal | ${i.pro}g protein | ${i.carb}g carbs | ${i.fat}g fat | ${i.satfat}g sat fat | ${i.fiber}g fiber`);
+  const t = data.total;
+  lines.push(`Totals — ${t.cal}cal | ${t.pro}g protein | ${t.carb}g carbs | ${t.fat}g fat | ${t.satfat}g sat fat | ${t.fiber}g fiber`);
+  navigator.clipboard.writeText(lines.join('\n'))
+    .then(() => showToast(`${AI_CONFIGS[id].label} copied`))
+    .catch(() => showToast('Copy failed'));
 }
 
 // ── 5m ─────────────────────────────────────────────────────────────────────
@@ -830,6 +949,7 @@ async function runAI(id, userContent, isFollowup) {
     results[id] = finalResult;
     setCardState(id, 'done');
     document.getElementById('content-'+id).innerHTML = renderMini(finalResult, finalProse);
+    document.getElementById('copy-'+id).style.display = 'inline-block';
     updateFiveM();
 
   } catch(e) {
@@ -875,10 +995,10 @@ async function handleFollowupImages(e) {
   const files = Array.from(e.target.files);
   const remaining = 10 - followupPhotos.length;
   if (remaining <= 0) { showToast('Max 10 photos per follow-up'); return; }
-  const toAdd = files.slice(0, remaining);
-  if (files.length > remaining) showToast(`Added ${remaining} of ${files.length}`);
-  const processed = await Promise.all(toAdd.map(f => resizeImage(f)));
-  followupPhotos.push(...processed);
+  const newPhotos = await filesToPhotos(files);
+  const toAdd = newPhotos.slice(0, remaining);
+  if (newPhotos.length > remaining) showToast(`Added ${remaining} of ${newPhotos.length}`);
+  followupPhotos.push(...toAdd);
   renderFollowupPhotoGrid();
   document.getElementById('fu-img-input').value = '';
 }
@@ -897,7 +1017,8 @@ function renderFollowupPhotoGrid() {
   followupPhotos.forEach((p, i) => {
     const wrap = document.createElement('div');
     wrap.className = 'photo-thumb-wrap';
-    wrap.innerHTML = `<img class="photo-thumb" src="${p.thumb}"><button class="photo-thumb-remove" onclick="removeFollowupPhoto(${i})">✕</button>`;
+    const labelHtml = p.label ? `<div style="position:absolute;bottom:0;left:0;right:0;background:rgba(0,0,0,0.65);color:#f0ede8;font-size:8px;text-align:center;padding:2px 0;line-height:1.2;">${p.label}</div>` : '';
+    wrap.innerHTML = `<img class="photo-thumb" src="${p.thumb}">${labelHtml}<button class="photo-thumb-remove" onclick="removeFollowupPhoto(${i})">✕</button>`;
     grid.appendChild(wrap);
   });
 }
@@ -1183,6 +1304,7 @@ async function newMeal() {
     setCardState(id,'');
     document.getElementById('content-'+id).innerHTML = '<span class="waiting">—</span>';
     document.getElementById('spin-'+id).style.display='none';
+    document.getElementById('copy-'+id).style.display='none';
   });
   document.getElementById('send-log-btn').style.display = 'none';
   document.getElementById('send-log-btn2').style.display = 'none';
