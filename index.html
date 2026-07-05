@@ -741,7 +741,7 @@ async function callClaude(messages, key) {
   const r = await fetch('https://api.anthropic.com/v1/messages', {
     method:'POST',
     headers:{'Content-Type':'application/json','x-api-key':key,'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true','anthropic-beta':'server-side-fallback-2026-06-01'},
-    body:JSON.stringify({model:'claude-fable-5',max_tokens:1500,system:PROMPT_SYSTEM,messages,fallbacks:[{model:'claude-opus-4-8'}],output_config:{effort:'medium'}})
+    body:JSON.stringify({model:'claude-fable-5',max_tokens:1500,system:PROMPT_SYSTEM,messages,fallbacks:[{model:'claude-opus-4-8'}],output_config:{effort:'low'}})
   });
   const d = await r.json();
   if (!r.ok || d.error) throw new Error(`Claude ${r.status}: ${d.error?.message || JSON.stringify(d)}`);
@@ -1264,7 +1264,7 @@ Write the Nourish diary entry now:`;
         max_tokens: 800,
         messages: [{ role: 'user', content: dataPrompt }],
         fallbacks: [{ model: 'claude-opus-4-8' }],
-        output_config: { effort: 'medium' }
+        output_config: { effort: 'low' }
       })
     });
     const data = await resp.json();

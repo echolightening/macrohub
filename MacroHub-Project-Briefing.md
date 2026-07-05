@@ -85,7 +85,7 @@ same way.
 reasoning and returns `finish_reason: "length"` with an **empty content string** — which
 surfaced as "no JSON found in response". The fix (v1b): `max_completion_tokens: 16000`
 (only tokens actually used are billed) plus `reasoning_effort: 'low'` (this is table
-extraction, not a reasoning task; default is `medium`). `'none'` is the literal minimum
+extraction, not a reasoning task; default is `low`). `'none'` is the literal minimum
 for GPT-5.5 but had a documented bug when combined with `max_completion_tokens` on this
 model family, so `'low'` is the lowest clean setting. `callOpenAI()` also now throws a
 descriptive error (including `finish_reason`) if `message.content` comes back
