@@ -27,8 +27,13 @@ log and clears everything. Only API keys + settings persist (localStorage, `mk_*
 `newMeal()` now persists via `persistCurrentMealIfAny()` before clearing — closes the
 "no meal persistence" gap above. Fable checkpoint ADOPT WITH MODIFICATIONS
 (`fable-bench:item28-m2-schema-checkpoint-2026-07-09`) — required fix (stable `meal_id`
-across retries, prevents duplicate records) applied same commit sequence. Data-layer
-primitives only (`saveMeal`/`getMeal`/`listMeals`/`deleteMeal`); no browse-by-date UI yet.
+across retries, prevents duplicate records) applied same commit sequence.
+**M3 DONE** (`507dd66`): browse-by-date History panel — date-grouped, searchable, reuse
+(pulls a past meal into the input), delete.
+**M4 DONE** (`8022c8c`): per-component quantity presets (0.5x/1.5x/2x per item) + whole-meal
+scaling (1.5x/2x), both distinct mechanics per the plan. Not yet browser-tested end-to-end
+by a human — JS syntax verified, logic reviewed, `index.html` opened locally for a visual
+check, but no automated/manual click-through confirmed yet.
 
 ## Next steps (item 28 plan)
 M1 (this enrollment) → M2 meal data model + storage (schema below) → M3 persist +
