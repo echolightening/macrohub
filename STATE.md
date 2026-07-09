@@ -15,6 +15,9 @@ Architecture detail: `README.md` §Architecture; setup: `README.md` §Setup.
 HEAD `37acccb` — v1d two-stage EXTRACT→JUDGE pipeline pass (frontier models never see
 images directly in that path; Claude stage-1 extract call effort-tuned).
 
+Last Fable review: 2026-07-09 @ eb6aa66 — plan authored and critiqued
+(`fable-bench:item28-macrohub-plan-2026-07-09`), not yet a code review.
+
 **Critical gap the item-28 build closes: there is NO meal persistence today.** All state
 (`results`, `histories`, `rawResponses`) is in-memory per session; `newMeal()` emails the
 log and clears everything. Only API keys + settings persist (localStorage, `mk_*` keys).
