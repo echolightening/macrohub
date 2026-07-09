@@ -22,6 +22,14 @@ Last Fable review: 2026-07-09 @ eb6aa66 — plan authored and critiqued
 (`results`, `histories`, `rawResponses`) is in-memory per session; `newMeal()` emails the
 log and clears everything. Only API keys + settings persist (localStorage, `mk_*` keys).
 
+## Progress
+**M2 DONE 2026-07-09** (`ed01e1f`): meal data model + storage layer (IndexedDB, local-first).
+`newMeal()` now persists via `persistCurrentMealIfAny()` before clearing — closes the
+"no meal persistence" gap above. Fable checkpoint ADOPT WITH MODIFICATIONS
+(`fable-bench:item28-m2-schema-checkpoint-2026-07-09`) — required fix (stable `meal_id`
+across retries, prevents duplicate records) applied same commit sequence. Data-layer
+primitives only (`saveMeal`/`getMeal`/`listMeals`/`deleteMeal`); no browse-by-date UI yet.
+
 ## Next steps (item 28 plan)
 M1 (this enrollment) → M2 meal data model + storage (schema below) → M3 persist +
 browse-by-date → M4 per-component/whole-meal editing → M5 reuse/re-log + search → M6
