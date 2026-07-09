@@ -185,9 +185,19 @@ table.macro-full { width: 100%; border-collapse: collapse; font-size: 11px; }
     <span class="sub">4 AI · parallel</span>
     <div class="header-right" style="display:flex;gap:8px;">
       <button class="new-meal-btn" id="send-log-btn" onclick="sendLogManual()" style="display:none;">✉ send log</button>
+      <button class="new-meal-btn" onclick="toggleHistory()">🕘 history</button>
       <button class="new-meal-btn" onclick="newMeal()">↺ new meal</button>
     </div>
   </header>
+
+  <!-- History (item 28 M3 — browse-by-date, built on the M2 storage layer) -->
+  <div class="settings-panel" id="history-panel">
+    <div class="label" style="display:flex;justify-content:space-between;align-items:center;">
+      <span>Meal history</span>
+      <input type="search" id="history-search" placeholder="search meals…" oninput="renderHistory()" style="background:var(--surface2);border:1px solid var(--border2);color:var(--text);border-radius:var(--rs);padding:6px 10px;font-family:var(--font-mono);font-size:11px;width:140px;">
+    </div>
+    <div id="history-list" style="margin-top:10px;max-height:420px;overflow-y:auto;"></div>
+  </div>
 
   <!-- Keys -->
   <div class="label">API Keys</div>
@@ -1538,6 +1548,111 @@ async function persistCurrentMealIfAny() {
     console.error('MealStore: failed to persist meal', e);
     return null;
   }
+}
+
+// ── History UI (item 28 M3 — browse-by-date, built on the M2 storage layer) ─
+// Data-layer primitives (saveMeal/getMeal/listMeals/deleteMeal) already exist from M2.
+// This is the UI that calls them: a date-grouped, searchable list with per-meal reuse
+// (pull components into the current draft) and per-meal delete.
+
+let _historyOpen = false;
+let _historyCache = [];  // refreshed each time the panel opens
+
+async function toggleHistory() {
+  const panel = document.getElementById('history-panel');
+  _historyOpen = !_historyOpen;
+  panel.classList.toggle('open', _historyOpen);
+  if (_historyOpen) {
+    _historyCache = await listMeals();  // already newest-first (M2's index cursor)
+    renderHistory();
+  }
+}
+
+function _mealMatchesSearch(meal, query) {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  if ((meal.meal_text || '').toLowerCase().includes(q)) return true;
+  return (meal.items || []).some(it => (it.name || '').toLowerCase().includes(q));
+}
+
+function _formatMealDateGroup(iso) {
+  const d = new Date(iso);
+  const today = new Date();
+  const yesterday = new Date(today); yesterday.setDate(today.getDate() - 1);
+  const sameDay = (a, b) => a.toDateString() === b.toDateString();
+  if (sameDay(d, today)) return 'Today';
+  if (sameDay(d, yesterday)) return 'Yesterday';
+  return d.toLocaleDateString(undefined, { weekday: 'short', month: 'short', day: 'numeric' });
+}
+
+function renderHistory() {
+  const query = document.getElementById('history-search').value.trim();
+  const filtered = _historyCache.filter(m => _mealMatchesSearch(m, query));
+  const list = document.getElementById('history-list');
+
+  if (filtered.length === 0) {
+    list.innerHTML = `<div style="padding:10px 0;color:var(--dim);">${_historyCache.length === 0 ? 'No meals logged yet.' : 'No meals match.'}</div>`;
+    return;
+  }
+
+  // Group by day, preserving the newest-first order listMeals() already gives us.
+  const groups = [];
+  let curLabel = null, curItems = null;
+  for (const m of filtered) {
+    const label = _formatMealDateGroup(m.logged_at);
+    if (label !== curLabel) {
+      curLabel = label; curItems = [];
+      groups.push([label, curItems]);
+    }
+    curItems.push(m);
+  }
+
+  list.innerHTML = groups.map(([label, meals]) => `
+    <div style="margin-bottom:14px;">
+      <div style="font-size:11px;margin-bottom:6px;color:var(--dim);">${label}</div>
+      ${meals.map(m => _renderHistoryRow(m)).join('')}
+    </div>
+  `).join('');
+}
+
+function _renderHistoryRow(meal) {
+  const t = meal.total || {};
+  const time = new Date(meal.logged_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  const preview = (meal.meal_text || (meal.items || []).map(i => i.name).join(', ') || '(untitled meal)').slice(0, 60);
+  return `
+    <div style="border:1px solid var(--border);border-radius:var(--rs);padding:10px;margin-bottom:6px;">
+      <div style="display:flex;justify-content:space-between;gap:8px;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${preview}</div>
+          <div style="font-size:10px;margin-top:2px;color:var(--dim);">${time} · ${t.cal ?? '—'}cal · ${t.pro ?? '—'}g pro</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-shrink:0;">
+          <button class="save-btn" style="padding:4px 8px;font-size:10px;" onclick="reuseMeal('${meal.meal_id}')">reuse</button>
+          <button class="save-btn" style="padding:4px 8px;font-size:10px;" onclick="deleteHistoryMeal('${meal.meal_id}')">delete</button>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+// Pulls a past meal's items into the current draft's textarea as a starting point — the
+// "reuse, not re-enter from scratch" requirement (item 28 plan, part 1). Does not re-run
+// AI estimation automatically; the operator can edit the pulled text and hit estimate.
+function reuseMeal(mealId) {
+  const meal = _historyCache.find(m => m.meal_id === mealId);
+  if (!meal) return;
+  const itemNames = (meal.items || []).map(i => i.name).join(', ');
+  document.getElementById('meal').value = meal.meal_text || itemNames;
+  toggleHistory();  // close the panel, back to the main input
+  document.getElementById('meal').focus();
+  showToast('Pulled into meal input — edit and estimate');
+}
+
+async function deleteHistoryMeal(mealId) {
+  if (!confirm('Delete this logged meal? This cannot be undone.')) return;
+  await deleteMeal(mealId);
+  _historyCache = _historyCache.filter(m => m.meal_id !== mealId);
+  renderHistory();
 }
 
 // ── New meal ───────────────────────────────────────────────────────────────
