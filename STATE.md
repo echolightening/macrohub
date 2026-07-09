@@ -55,10 +55,98 @@ panel — instructions are inline in the panel. Until then, live GitHub round-tr
 plan's multi-device (phone + laptop) verify step are untested. Full detail:
 `~/local-ai/reviews/runlogs/macrohub-item28-m6-sync.md`.
 
+**M8 DONE 2026-07-09 (nutrition-database bulk ingest, Track-2):** built per
+`~/local-ai/specs/plans/item28-nutrition-research-brief.md` and its Fable verdict
+`fable-bench:item28-nutrition-research-2026-07-09` (ADOPT WITH MODIFICATIONS, 4 required
+mods — see LOCKED.md invariants 8/9/10). $0 model spend for bulk ingest (deterministic ETL
+only). Real free bulk data, three sources, **82,204 total records** across 6 shards:
+
+| Source | Shard file(s) | Records | License / provenance |
+|---|---|---|---|
+| USDA FoodData Central | `data/fooddb/usda/usda_sr_legacy.json` | 7,793 | public domain, `usda` |
+| USDA FoodData Central | `data/fooddb/usda/usda_foundation.json` | 135 | public domain, `usda` |
+| USDA FoodData Central | `data/fooddb/usda/usda_fndds.json` | 5,431 | public domain, `usda` |
+| USDA FoodData Central | `data/fooddb/usda/usda_branded.json` | 19,882 (capped, see below) | public domain, `usda` |
+| Open Food Facts | `data/fooddb/openfoodfacts/openfoodfacts.json` | 30,000 (capped) | **ODbL-1.0** — segregated shard, see LOCKED inv. 8 |
+| MenuStat | `data/fooddb/menustat/menustat.json` | 18,963 | free/public, `label` |
+
+All records match the M2 schema field-for-field: `fooddb_id`, `name`, `aliases[]`,
+`per_100g` (using MacroHub's exact field names `cal/pro/carb/fat/satfat/fiber`), `serving`,
+`source`, `provenance`, `confidence`. Build scripts: `scripts/ingest_usda.py`,
+`scripts/ingest_off.py`, `scripts/ingest_menustat.py` — all re-runnable, all take a `--cap`
+(or `--cap-branded`) flag for a larger future ingest (growth path, see below).
+
+**Deviation from the brief, documented not silent:** MenuStat's cited source
+(menustat.org) is a dead/repurposed domain as of this build — it now redirects to an
+unrelated third-party site. The dataset's real current home is Harvard Dataverse,
+`doi:10.7910/DVN/K4NYTR` ("MenuStat Annual Data", Cleveland 2022) — same NYC-DOH-produced
+panel, free, no auth. Used the most recent year available there (2018). See
+`scripts/ingest_menustat.py` module docstring for the full note.
+
+**Deliberate caps for this seed run** (per M10 gate text below — not "largest practical
+dataset"): USDA Branded capped at 20,000 (of ~2M+ available in the full bulk download,
+already extracted locally at `data/fooddb/_raw/usda_extracted/branded_food.csv` — a
+re-run with `--cap-branded 0` ingests all of it, no redesign needed). Open Food Facts
+capped at 30,000 (of ~4.5M rows in the official "en" export already downloaded at
+`data/fooddb/_raw/off_en.csv.gz`; the full multilingual Parquet dump, ~7.6GB, is a further
+future option). MenuStat is NOT capped — all 18,963 rows with complete macro fields were
+kept (52,181 rows dropped for being "customizable build" placeholders with a text range
+instead of a number, e.g. `Calories_text: "340-1175"` — never estimated, per the
+drop-don't-guess policy applied uniformly across all three sources).
+
+Raw downloads (~4.4GB: USDA zip+extracted CSVs, OFF csv.gz) are kept at
+`data/fooddb/_raw/` for cheap re-runs at a higher cap, but gitignored
+(`data/fooddb/.gitignore`) — not committed.
+
+**Long-tail candidate list generated (M8's bounded piece of the M9 gate, per Fable
+verdict modification 1):** `scripts/generate_longtail_candidates.py` made exactly ONE
+headless `claude -p --model haiku` call (no metered Anthropic API key exists in this
+cluster's secrets — `~/local-ai/.{gemini,openai,xai,runpod}_key` only, no
+`.anthropic_key` — so per the item-15 precedent this runs $0-marginal on the Max plan,
+trivially satisfying the verdict's ≤$0.50 list-generation cap). Output: **158 candidate
+dishes across 9 cuisine headings** at `data/fooddb/long-tail-candidates.md` — plain
+markdown, names + composition notes only, zero macro numbers (by design — this is a
+naming/scoping list, not an estimate).
+
+**BLOCKED-ON-OPERATOR (new, blocks M9):** review `data/fooddb/long-tail-candidates.md`,
+cross out anything not wanted, confirm the remainder before M9 (recipe-composition +
+any long-tail fooddb-record spend) proceeds. Per LOCKED.md invariant 9 / Fable verdict
+modification 1, **zero** long-tail composition/estimation spend has occurred past the
+list-generation call above, and none may occur until this gate clears.
+`scripts/run_longtail_tick.sh` (the eventual M9 launchd entry point) already checks for
+an operator-created marker file (`data/fooddb/.longtail-candidates-approved`) and exits
+without doing anything if it's absent — so even an accidental launchd install can't jump
+this gate.
+
+**launchd for M9: written, NOT installed** (same pattern as item 15 — the permission
+classifier correctly blocks unattended recurring-job installation without live operator
+authorization). `launchd/com.tq.localai.macrohub-longtail.plist` +
+`scripts/run_longtail_tick.sh` exist and are self-terminating-by-design (unloads at
+first of $10 total spend / 7 daily ticks / candidate-list drained, per LOCKED inv. 5 and
+the brief's stopping-condition design) but `longtail_composition.py` itself — the actual
+M9 recipe-composition logic — has NOT been built; that's explicitly out of scope for
+this M8 dispatch and gated on the operator-pruning step above regardless.
+
+**M10 close-out gate text (standing acceptance criterion, written now per Fable verdict
+modification 4 — apply this when M9/M10 actually run):** M10 close-out must be judged
+against *"a useful personal seed with a documented growth path"* — NOT the operator's
+original aspirational "largest practical dataset" framing. The corpus built here
+(82,204 free-tier records + a pending, operator-gated long-tail slice) is the correct
+shape for that bar: broad authoritative coverage from three free bulk sources, a bounded
+Haiku-assisted long-tail extension, and a documented, re-runnable path to ingest more of
+any source later (raise/remove the `--cap`/`--cap-branded` flags) without redesigning
+the pipeline. Do not fail M10 for not being exhaustive — that was never the target.
+
+Full build log: `~/local-ai/reviews/runlogs/macrohub-item28-m8-nutrition.md`.
+
 ## Next steps (item 28 plan)
 M1 → M2 → M3 → M4 → M5 (done, see above) → M6 (done) → M7 (code-complete, pending operator
-PAT for live verify) → M8 Track-2 (nutrition-research job) design + dry run → M9 supervised
-pilot → M10 week run + close-out. Full milestone table + Fable checkpoints: the plan file
+PAT for live verify) → **M8 DONE** (bulk ingest, see above) → **M9 BLOCKED ON OPERATOR**
+(review/prune `data/fooddb/long-tail-candidates.md`, create
+`data/fooddb/.longtail-candidates-approved` to clear the gate, then build
+`scripts/longtail_composition.py` and install the launchd job) → M10 close-out (judge
+against the "useful personal seed with documented growth path" gate text above, not
+"largest practical dataset"). Full milestone table + Fable checkpoints: the plan file
 above.
 
 ## Stored-meal schema (planned, not yet built — item 28 plan §1 Q3)

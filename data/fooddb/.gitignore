@@ -1,0 +1,5 @@
+# Raw bulk downloads (USDA zip+extracted CSVs ~5.5GB, OFF csv.gz ~1.2GB) — not
+# committed. Re-fetch via the scripts/ingest_*.py source URLs documented in
+# their module docstrings, or keep this dir locally for cheap re-runs with a
+# higher --cap-branded/--cap (growth path, see STATE.md).
+_raw/

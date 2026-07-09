@@ -1,0 +1,2 @@
+[ingest_menustat] scan complete: 71144 rows scanned, 18963 kept, 52181 dropped (missing core macro fields — mostly 'customizable build' placeholder rows)
+[ingest_menustat] wrote data/fooddb/menustat/menustat.json: 18963 records

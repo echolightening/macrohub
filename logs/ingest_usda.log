@@ -1,0 +1,17 @@
+[ingest_usda] pass 1: selecting target foods from food.csv + branded_food.csv (cap_branded=20000)
+[ingest_usda] food.csv pass: sr_legacy=7793 foundation=411 fndds=5432
+[ingest_usda] branded_food.csv pass: kept 20000 of cap=20000
+[ingest_usda] pass 2: streaming food_nutrient.csv to fill macros for 33636 target foods
+[ingest_usda]   food_nutrient.csv: 5,000,000 rows scanned...
+[ingest_usda]   food_nutrient.csv: 10,000,000 rows scanned...
+[ingest_usda]   food_nutrient.csv: 15,000,000 rows scanned...
+[ingest_usda]   food_nutrient.csv: 20,000,000 rows scanned...
+[ingest_usda]   food_nutrient.csv: 25,000,000 rows scanned...
+[ingest_usda] food_nutrient.csv pass complete: 33633 target foods got at least one macro value
+[ingest_usda] pass 3: finalize + drop incomplete records
+[ingest_usda] finalize: dropped 395 records missing required core fields (cal, carb, fat, pro)
+[ingest_usda] wrote data/fooddb/usda/usda_sr_legacy.json: 7793 records
+[ingest_usda] wrote data/fooddb/usda/usda_foundation.json: 135 records
+[ingest_usda] wrote data/fooddb/usda/usda_fndds.json: 5431 records
+[ingest_usda] wrote data/fooddb/usda/usda_branded.json: 19882 records
+[ingest_usda] DONE: 33241 USDA records written across 4 shards to data/fooddb/usda

@@ -49,6 +49,35 @@ handle via waiver or escalation, never silently.
    stored as a single overwritten JSON blob per the critique's anti-repo-bloat guidance, not
    one commit per write. Implementation is milestone M7 (see STATE.md for build status).
 
+8. **Open Food Facts (ODbL) records are flagged-and-segregated, never excluded, never
+   merged into a mixed-source shard.** (Source: item28 nutrition-research brief Fable
+   verdict `fable-bench:item28-nutrition-research-2026-07-09`, ADOPT WITH MODIFICATIONS,
+   required modification 2.) All Open-Food-Facts-derived fooddb records live physically
+   under `data/fooddb/openfoodfacts/` only, each record carries `"source":
+   "openfoodfacts"` and `"license": "ODbL-1.0"`. **Attribution:** data sourced from Open
+   Food Facts (https://world.openfoodfacts.org), licensed under the Open Database
+   License (ODbL) v1.0 (https://opendatacommons.org/licenses/odbl/1-0/). Share-alike
+   obligations attach only if this shard is ever redistributed as part of a derivative
+   database — not a concern at personal-use scale, flagged here as a future-commercial
+   consideration per item 28 part 3, not solved now.
+
+9. **Long-tail (ethnic/home-cooked dish) composition spend is gated on operator pruning.**
+   (Source: same Fable verdict, required modification 1.) Haiku may generate a
+   *candidate* dish-name list (capped at ≤$0.50 of the $10 Track-2 total), but zero
+   composition/estimation spend beyond that list generation may occur until the
+   operator/commissioner has reviewed and pruned
+   `data/fooddb/long-tail-candidates.md` and confirmed the remainder. See STATE.md's
+   BLOCKED-ON-OPERATOR item.
+
+10. **Pure `ai-estimated` long-tail records are capped, not forbidden.** (Source: same
+    Fable verdict, required modification 3.) When Haiku's recipe-composition path
+    (ingredient-summed from USDA data, provenance `computed`) fails to map a dish's
+    ingredients, a pure `ai-estimated` fallback record is allowed, but hard-capped at
+    ≤10% of long-tail records emitted, each carrying `confidence` ≤0.5 and a logged
+    failed-ingredient-mapping reason. If the composition path fails on more than 10% of
+    attempted dishes, the M9 tick must HALT for review rather than paper over the gap
+    with estimates.
+
 ## Files
 <none locked yet — Track-1 storage/schema code doesn't exist until milestone M2. First
 candidate once M2 lands: the meal data-model/schema module, given schema_version is the

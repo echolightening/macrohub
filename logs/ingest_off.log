@@ -1,0 +1,2 @@
+[ingest_off] scan complete: 161,225 rows scanned, 30000 kept, 123413 dropped for missing core macro fields
+[ingest_off] wrote data/fooddb/openfoodfacts/openfoodfacts.json: 30000 records (physically segregated shard, source=openfoodfacts on every record)

@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.tq.localai.macrohub-longtail</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/bin/bash</string>
+		<string>/Users/tq/Projects/macrohub/scripts/run_longtail_tick.sh</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<!-- Daily cadence, matching item-15 precedent. Self-terminating series, NOT
+	     a permanent poller (per brief §5): the tick script itself unloads this
+	     job via `launchctl bootout` at the first of $10 total spend / 7 ticks /
+	     candidate-list drained. Track-2 caps: LOCKED.md invariant 5. -->
+	<key>StartInterval</key>
+	<integer>86400</integer>
+	<key>StandardErrorPath</key>
+	<string>/Users/tq/Projects/macrohub/logs/longtail_launchd.log</string>
+	<key>StandardOutPath</key>
+	<string>/Users/tq/Projects/macrohub/logs/longtail_launchd.log</string>
+</dict>
+</plist>

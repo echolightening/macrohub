@@ -1,0 +1,2 @@
+[2026-07-09T09:10:38] [generate_longtail_candidates] dispatching ONE bounded headless Haiku call for candidate-list generation (list generation only — no composition/estimation spend past this call, per Fable verdict modification 1)
+[2026-07-09T09:11:30] [generate_longtail_candidates] DONE: wrote /Users/tq/Projects/macrohub/scripts/../data/fooddb/long-tail-candidates.md — approx 158 candidate dish lines. STOPPING HERE per scope — no further spend past this call.
