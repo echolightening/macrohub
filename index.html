@@ -225,6 +225,35 @@ table.macro-full { width: 100%; border-collapse: collapse; font-size: 11px; }
     </div>
   </div>
 
+  <!-- Sync (item 28 M7 — cross-device sync, data-placement RATIFIED 2026-07-09, LOCKED.md
+       invariant 7). Adapter, never a dependency (invariant 3): the app works fully offline
+       with sync left unconfigured. v1 adapter = private GitHub repo SEPARATE from the Pages
+       deploy repo, PAT scoped to the data repo only, payload encryption default-ON. -->
+  <div class="label">Sync (optional)</div>
+  <button class="settings-toggle" onclick="toggleSyncPanel()">configure sync ↓</button>
+  <div class="settings-panel" id="sync-panel">
+    <div style="font-size:11px;color:var(--dim);margin-bottom:10px;line-height:1.5;">
+      Syncs your meal history to a private GitHub repo you control, separate from this app's
+      deploy repo. Requires a fine-grained GitHub PAT scoped ONLY to that data repo (create at
+      github.com → Settings → Developer settings → Fine-grained tokens → Repository access:
+      "Only select repositories" → this repo → Contents: Read and write). Payloads are
+      encrypted client-side before they leave this device unless you turn encryption off below.
+    </div>
+    <div class="key-row"><label>Data repo (owner/name)</label><input type="text" id="key-sync-repo" placeholder="yourname/macrohub-sync-data" autocomplete="off" spellcheck="false"></div>
+    <div class="key-row"><label>GitHub PAT (data repo only)</label><input type="password" id="key-sync-pat" placeholder="github_pat_…" autocomplete="off" spellcheck="false"></div>
+    <div class="key-row"><label>Encryption passphrase</label><input type="password" id="key-sync-passphrase" placeholder="required while encryption is on" autocomplete="off" spellcheck="false"></div>
+    <div class="key-row" style="align-items:center;">
+      <label>Encrypt payloads</label>
+      <input type="checkbox" id="key-sync-encrypt" checked style="width:auto;">
+    </div>
+    <button class="save-btn" onclick="saveSyncSettings()">save sync settings</button>
+    <div style="border-top:1px solid var(--border);margin:14px 0;"></div>
+    <div style="display:flex;gap:8px;">
+      <button class="save-btn" onclick="syncNow()" style="flex:1;">⇅ sync now</button>
+    </div>
+    <div id="sync-status" style="font-size:11px;color:var(--dim);margin-top:8px;"></div>
+  </div>
+
   <div class="divider"></div>
 
   <!-- Input -->
@@ -394,6 +423,43 @@ function saveKeys() {
 }
 function getKey(n) { return (document.getElementById('key-'+n)||{}).value?.trim() || localStorage.getItem('mk_'+n) || ''; }
 function toggleSettings() { document.getElementById('settings-panel').classList.toggle('open'); }
+
+// ── Sync settings (item 28 M7) ──────────────────────────────────────────────
+// Same device-local-storage discipline as the AI/EmailJS keys above, kept as a separate
+// panel/key set since these are a different secret class: a GitHub PAT that leaves the
+// device on every sync call (unlike the AI keys' direct-to-provider-only posture, invariant
+// 1), and an encryption passphrase that never leaves the device at all. Encryption defaults
+// ON per LOCKED.md invariant 7 — `mk_sync-encrypt` is only ever '0' if the operator
+// explicitly unchecks the box; absence of the key means "on".
+const SYNC_KEYS = ['sync-repo', 'sync-pat', 'sync-passphrase'];
+function loadSyncSettings() {
+  SYNC_KEYS.forEach(k => {
+    const v = localStorage.getItem('mk_'+k);
+    const el = document.getElementById('key-'+k);
+    if (el) el.value = v || '';
+  });
+  const encEl = document.getElementById('key-sync-encrypt');
+  const encStored = localStorage.getItem('mk_sync-encrypt');
+  if (encEl) encEl.checked = (encStored === null) ? true : encStored === '1';
+}
+function saveSyncSettings() {
+  SYNC_KEYS.forEach(k => {
+    const el = document.getElementById('key-'+k);
+    if (!el) return;
+    const v = el.value.trim();
+    if (v) localStorage.setItem('mk_'+k, v);
+  });
+  const encEl = document.getElementById('key-sync-encrypt');
+  localStorage.setItem('mk_sync-encrypt', encEl && encEl.checked ? '1' : '0');
+  showToast('Sync settings saved');
+}
+function toggleSyncPanel() { document.getElementById('sync-panel').classList.toggle('open'); }
+function syncEncryptionEnabled() {
+  const encEl = document.getElementById('key-sync-encrypt');
+  if (encEl) return encEl.checked;
+  const stored = localStorage.getItem('mk_sync-encrypt');
+  return stored === null ? true : stored === '1';
+}
 
 // ── Settings export/import (for setting up a new device without retyping keys) ──
 function exportSettings() {
@@ -1442,6 +1508,10 @@ function makeMealRecord(mealText, items, total) {
   return {
     meal_id: 'm_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
     logged_at: new Date().toISOString(),
+    // `updated_at` is the M7 sync merge key (last-write-wins per meal_id) — bumped on every
+    // edit in _applyMealEdit, not just at creation. Absent on records saved before M7; the
+    // merge falls back to logged_at for those.
+    updated_at: new Date().toISOString(),
     schema_version: MEALSTORE_SCHEMA_VERSION,
     meal_text: mealText || '',
     items: (items || []).map(it => ({
@@ -1547,6 +1617,158 @@ async function persistCurrentMealIfAny() {
   } catch (e) {
     console.error('MealStore: failed to persist meal', e);
     return null;
+  }
+}
+
+// ── Sync adapter (item 28 M7 — cross-device sync, LOCKED.md invariant 7) ────
+// Adapter, not a dependency (invariant 3): every function here is only ever called from the
+// "sync now" button or on-demand from saveSyncSettings' flow, never from the core log/persist
+// path. If sync is unconfigured, the app behaves exactly as it did through M6.
+//
+// v1 adapter: a private GitHub repo SEPARATE from the Pages deploy repo (never the same repo
+// — see LOCKED.md invariant 7 / plan §3b), reached via a PAT scoped to that repo only. Data
+// is stored as a single overwritten JSON blob (`meals.json`) — not one commit per write, to
+// avoid unbounded repo-history bloat (critique's explicit guidance).
+//
+// Payload encryption (AES-GCM 256 via Web Crypto, PBKDF2-derived key) is default-ON per
+// invariant 7. The salt travels inside the synced blob itself (self-describing), NOT in
+// localStorage, so any second device that knows only the passphrase can decrypt regardless
+// of its own local state.
+
+const SYNC_FILE_PATH = 'meals.json';
+const SYNC_PBKDF2_ITERATIONS = 100000;
+
+function _b64FromBytes(bytes) {
+  let bin = '';
+  bytes.forEach(b => bin += String.fromCharCode(b));
+  return btoa(bin);
+}
+function _bytesFromB64(b64) {
+  return Uint8Array.from(atob(b64), c => c.charCodeAt(0));
+}
+
+async function _deriveSyncKey(passphrase, saltBytes) {
+  const enc = new TextEncoder();
+  const baseKey = await crypto.subtle.importKey('raw', enc.encode(passphrase), 'PBKDF2', false, ['deriveKey']);
+  return crypto.subtle.deriveKey(
+    { name: 'PBKDF2', salt: saltBytes, iterations: SYNC_PBKDF2_ITERATIONS, hash: 'SHA-256' },
+    baseKey,
+    { name: 'AES-GCM', length: 256 },
+    false,
+    ['encrypt', 'decrypt']
+  );
+}
+
+// Encrypts `obj` (JSON-serializable) into a self-contained envelope: {v, encrypted:true,
+// salt, iv, data} — all base64 except the flags. A fresh salt+iv is generated every push;
+// PBKDF2 re-derivation cost is trivial at this data size and this keeps the file fully
+// self-describing for any device holding only the passphrase.
+async function encryptSyncPayload(obj, passphrase) {
+  const salt = crypto.getRandomValues(new Uint8Array(16));
+  const iv = crypto.getRandomValues(new Uint8Array(12));
+  const key = await _deriveSyncKey(passphrase, salt);
+  const enc = new TextEncoder();
+  const plaintext = enc.encode(JSON.stringify(obj));
+  const ciphertext = await crypto.subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintext);
+  return {
+    v: 1, encrypted: true,
+    salt: _b64FromBytes(salt), iv: _b64FromBytes(iv),
+    data: _b64FromBytes(new Uint8Array(ciphertext)),
+  };
+}
+
+async function decryptSyncPayload(envelope, passphrase) {
+  if (!envelope.encrypted) return envelope.data;
+  if (!passphrase) throw new Error('Sync payload is encrypted but no passphrase is configured');
+  const salt = _bytesFromB64(envelope.salt);
+  const iv = _bytesFromB64(envelope.iv);
+  const key = await _deriveSyncKey(passphrase, salt);
+  const ciphertext = _bytesFromB64(envelope.data);
+  const plaintext = await crypto.subtle.decrypt({ name: 'AES-GCM', iv }, key, ciphertext);
+  return JSON.parse(new TextDecoder().decode(plaintext));
+}
+
+// ── GitHub Contents API (data repo only — never the deploy repo) ────────────
+async function _githubGetFile(repo, pat) {
+  const res = await fetch(`https://api.github.com/repos/${repo}/contents/${SYNC_FILE_PATH}`, {
+    headers: { Authorization: `Bearer ${pat}`, Accept: 'application/vnd.github+json' },
+  });
+  if (res.status === 404) return null;  // no sync file yet — first push
+  if (!res.ok) throw new Error(`GitHub GET failed: ${res.status} ${res.statusText}`);
+  const json = await res.json();
+  const content = decodeURIComponent(escape(atob(json.content.replace(/\n/g, ''))));
+  return { envelope: JSON.parse(content), sha: json.sha };
+}
+
+async function _githubPutFile(repo, pat, envelope, sha) {
+  const contentB64 = btoa(unescape(encodeURIComponent(JSON.stringify(envelope))));
+  const body = { message: `sync ${new Date().toISOString()}`, content: contentB64 };
+  if (sha) body.sha = sha;
+  const res = await fetch(`https://api.github.com/repos/${repo}/contents/${SYNC_FILE_PATH}`, {
+    method: 'PUT',
+    headers: { Authorization: `Bearer ${pat}`, Accept: 'application/vnd.github+json', 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) throw new Error(`GitHub PUT failed: ${res.status} ${res.statusText}`);
+  return res.json();
+}
+
+// Last-write-wins per meal_id, keyed off `updated_at` (falls back to `logged_at` for
+// pre-M7 records that predate the field). Documented accepted limitation (LOCKED.md
+// invariant 7): a genuine two-device concurrent offline edit of the SAME meal_id silently
+// drops one side. Acceptable at personal scale.
+function _mealTimestamp(m) { return m.updated_at || m.logged_at || ''; }
+function _mergeMealSets(localMeals, remoteMeals) {
+  const byId = new Map();
+  for (const m of localMeals) byId.set(m.meal_id, m);
+  for (const rm of remoteMeals) {
+    const lm = byId.get(rm.meal_id);
+    if (!lm || _mealTimestamp(rm) > _mealTimestamp(lm)) byId.set(rm.meal_id, rm);
+  }
+  return Array.from(byId.values());
+}
+
+function _setSyncStatus(text) {
+  const el = document.getElementById('sync-status');
+  if (el) el.textContent = text;
+}
+
+// Pull remote → merge with local (LWW by updated_at) → write merged set back to IndexedDB →
+// push the merged set back to the repo. One button does a full round-trip so two devices
+// converge to the same state after each sync, rather than requiring separate push/pull steps.
+async function syncNow() {
+  const repo = getKey('sync-repo');
+  const pat = getKey('sync-pat');
+  const encrypt = syncEncryptionEnabled();
+  const passphrase = getKey('sync-passphrase');
+  if (!repo || !pat) { _setSyncStatus('Set data repo + PAT above, then save sync settings.'); return; }
+  if (encrypt && !passphrase) { _setSyncStatus('Encryption is on — set a passphrase, or uncheck encryption.'); return; }
+
+  _setSyncStatus('Syncing…');
+  try {
+    const remoteFile = await _githubGetFile(repo, pat);
+    let remoteMeals = [];
+    if (remoteFile) {
+      remoteMeals = await decryptSyncPayload(remoteFile.envelope, passphrase);
+    }
+    const localMeals = await listMeals();
+    const merged = _mergeMealSets(localMeals, remoteMeals);
+
+    // Write merged results back into IndexedDB (picks up anything pulled from the other device).
+    for (const m of merged) await saveMeal(m);
+
+    // Push the merged set back so the repo reflects the same converged state.
+    const envelope = encrypt
+      ? await encryptSyncPayload(merged, passphrase)
+      : { v: 1, encrypted: false, data: merged };
+    await _githubPutFile(repo, pat, envelope, remoteFile ? remoteFile.sha : null);
+
+    localStorage.setItem('mk_sync-last', new Date().toISOString());
+    _setSyncStatus(`Synced ${merged.length} meal(s) — ${new Date().toLocaleTimeString()}`);
+    if (_historyOpen) { _historyCache = await listMeals(); renderHistory(); }
+  } catch (e) {
+    console.error('Sync failed', e);
+    _setSyncStatus('Sync failed: ' + (e.message || e));
   }
 }
 
@@ -1704,6 +1926,7 @@ async function _applyMealEdit(mealId, newItems) {
   if (!meal) return;
   meal.items = newItems;
   meal.total = _recomputeMealTotal(newItems);
+  meal.updated_at = new Date().toISOString();  // M7 sync merge key — this edit now wins LWW
   await saveMeal(meal);  // put() — same meal_id, overwrites in place
   renderHistory();
   showToast('Meal updated');
@@ -1779,6 +2002,7 @@ async function newMeal() {
 }
 
 loadKeys();
+loadSyncSettings();
 renderPhotoGrid();
 // Populate the muted model-ID labels on the mini-cards from AI_CONFIGS (single source of truth)
 Object.keys(AI_CONFIGS).forEach(id => {

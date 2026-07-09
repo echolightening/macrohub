@@ -34,15 +34,32 @@ across retries, prevents duplicate records) applied same commit sequence.
 scaling (1.5x/2x), both distinct mechanics per the plan. Not yet browser-tested end-to-end
 by a human — JS syntax verified, logic reviewed, `index.html` opened locally for a visual
 check, but no automated/manual click-through confirmed yet.
+**M5 DONE (absorbed into M3):** confirmed 2026-07-09 — M3's History panel already shipped
+reuse (`reuseMeal()`, pulls a past meal into the input) and search (`history-search` input +
+`_mealMatchesSearch`). No separate M5 commit was needed; STATE.md's M3 note above already
+said this, re-verified before starting M6/M7 work.
+**M6 DONE 2026-07-09 (operator gate, ratified):** operator explicitly RATIFIED (live
+confirmation, commissioner session) the cross-device sync data-placement decision — see
+`LOCKED.md` invariant 7. Closes AGENDA's `macrohub-locked-review-2026-07-09` blocker.
+**M7 DONE 2026-07-09 (sync implementation, code-complete):** v1 GitHub-repo adapter built —
+new private repo `echolightening/macrohub-sync-data` (separate from this deploy repo), Web
+Crypto AES-GCM encryption default-ON (PBKDF2-derived key, self-describing salt/IV in the
+synced blob), LWW merge by `updated_at` per `meal_id`, single-overwritten-JSON sync file
+(no per-write commits). New "Sync (optional)" panel in `index.html` (repo/PAT/passphrase/
+encrypt-toggle/sync-now). Crypto round-trip + merge logic verified in isolation (Node
+`webcrypto`, same params); `node --check` passes on the full script.
+**NOT YET DONE — needs operator action:** GitHub does not support fine-grained PAT creation
+via API/CLI (web-UI-only). Operator must generate a PAT scoped to
+`echolightening/macrohub-sync-data` only (Contents: Read/write) and paste it into the Sync
+panel — instructions are inline in the panel. Until then, live GitHub round-trip and the
+plan's multi-device (phone + laptop) verify step are untested. Full detail:
+`~/local-ai/reviews/runlogs/macrohub-item28-m6-sync.md`.
 
 ## Next steps (item 28 plan)
-M1 (this enrollment) → M2 meal data model + storage (schema below) → M3 persist +
-browse-by-date → M4 per-component/whole-meal editing → M5 reuse/re-log + search → M6
-**operator gate**: ratify the cross-device sync architecture (local-first IndexedDB +
-pluggable adapter, v1 recommendation = private GitHub-repo adapter, separate from the
-Pages deploy repo per the plan's critique-fold-in — see plan §3b) → M7 sync implementation
-→ M8 Track-2 (nutrition-research job) design + dry run → M9 supervised pilot → M10 week
-run + close-out. Full milestone table + Fable checkpoints: the plan file above.
+M1 → M2 → M3 → M4 → M5 (done, see above) → M6 (done) → M7 (code-complete, pending operator
+PAT for live verify) → M8 Track-2 (nutrition-research job) design + dry run → M9 supervised
+pilot → M10 week run + close-out. Full milestone table + Fable checkpoints: the plan file
+above.
 
 ## Stored-meal schema (planned, not yet built — item 28 plan §1 Q3)
 Item fields extend today's `{name, cal, pro, carb, fat, satfat, fiber}` with optional

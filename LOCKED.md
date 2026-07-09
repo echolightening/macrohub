@@ -18,9 +18,10 @@ handle via waiver or escalation, never silently.
 3. **Meal data is local-first (IndexedDB), sync is an adapter, never a dependency.** The app
    must fully function offline. (Source: item 28 Fable-authored plan §1 Q1,
    `~/local-ai/specs/plans/item28-macrohub-plan.md`, ADOPT WITH MODIFICATIONS.)
-4. **Cross-device sync data-placement is PROPOSED, not yet ratified** — see PROPOSED section
-   below. No sync implementation (plan milestone M7) begins before this is ratified at
-   milestone M6 (an explicit operator gate).
+4. **Cross-device sync data-placement — RATIFIED 2026-07-09.** See invariant 7 below for the
+   confirmed shape. (Superseded: this line previously read "PROPOSED, not yet ratified";
+   resolution recorded in full at invariant 7 and in the former PROPOSED section, kept below
+   for audit trail.)
 5. **Track-2 (nutrition-research job) is a standing, budget-capped, launchd-scheduled job** —
    per-tick ≤30min/≤300 items/≤$1.50 Haiku spend; total-run ≤$10 or 7 daily ticks, whichever
    first, auto-halting. (Source: item 28 plan §2, binding Track-2 caps — mirrors item 15's
@@ -29,6 +30,24 @@ handle via waiver or escalation, never silently.
 6. **Provenance labeling is mandatory on food-DB records** (`usda | label | ai-estimated`) —
    AI-estimated records must be visually distinguishable in-app, never silently presented as
    authoritative. (Source: item 28 plan §2 condition 7.)
+7. **Cross-device sync data-placement (RATIFIED 2026-07-09).** Local-first IndexedDB remains
+   the source of truth; sync is a pluggable adapter, never a dependency (invariant 3). The v1
+   adapter is a **private GitHub repo, SEPARATE from the GitHub-Pages deploy repo**
+   (`echolightening/macrohub-sync-data`, created 2026-07-09), reachable only via a **PAT
+   scoped to the data repo only** (fine-grained, no access to the deploy repo), and **payload
+   encryption is default-ON** (client-side AES-GCM, key derived from an operator-supplied
+   passphrase via PBKDF2, salt travels with the ciphertext so any device holding the
+   passphrase can decrypt) for health-adjacent data. **Confirmed live by the operator in a
+   commissioner session on 2026-07-09** — this is the explicit ratification required at the
+   M6 operator-gate in `~/local-ai/specs/plans/item28-macrohub-plan.md`'s milestone table;
+   closes AGENDA's `macrohub-locked-review-2026-07-09` blocker and item 28's plan milestone
+   M6. The substance is unchanged from the PROPOSED item below (kept for audit trail) — the
+   Opus critique's three binding additions (separate repo; data-scoped PAT; default-ON
+   encryption) are adopted as written, no amendment. Known accepted limitation, stated per
+   the critique rather than hidden: last-write-wins per `meal_id` can silently drop one side
+   of a two-device concurrent offline edit — acceptable at personal scale. Sync data is
+   stored as a single overwritten JSON blob per the critique's anti-repo-bloat guidance, not
+   one commit per write. Implementation is milestone M7 (see STATE.md for build status).
 
 ## Files
 <none locked yet — Track-1 storage/schema code doesn't exist until milestone M2. First
@@ -42,7 +61,11 @@ gap this build closes — `newMeal()` currently clears all in-memory state).>
 
 ## PROPOSED
 
-1. **Cross-device sync architecture and data-placement.** The Fable-authored plan
+<none currently open. Former item 1 (cross-device sync architecture and data-placement) was
+RATIFIED 2026-07-09 — moved to Invariants item 7 above. Original text kept below for audit
+trail only; do not re-read as an open decision.>
+
+1. ~~**Cross-device sync architecture and data-placement.** The Fable-authored plan
    recommends: local-first IndexedDB + a pluggable sync-adapter interface, v1 adapter = a
    **private GitHub repo, SEPARATE from the GitHub-Pages deploy repo**, PAT scoped to the
    data repo only, client-side payload encryption default-ON for health-adjacent data (this
@@ -51,11 +74,11 @@ gap this build closes — `newMeal()` currently clears all in-memory state).>
    write-scoped repo PAT sitting in browser localStorage next to two third-party CDN script
    includes is a real supply-chain/XSS exposure, and a same-repo data+deploy setup would
    both self-expose the deployed app and make personal dietary data publicly readable via
-   Pages). **This is a real data-placement change (meal data will leave the device to a
+   Pages). This is a real data-placement change (meal data will leave the device to a
    private GitHub repo) and requires the operator's explicit ratification at plan milestone
-   M6 before any implementer builds M7.** Not yet resolved — surfaced to AGENDA.md
-   (`macrohub-locked-review-2026-07-09`) per this skill's non-deferral rule.
+   M6 before any implementer builds M7.**~~ **RATIFIED 2026-07-09 — see Invariants item 7.**
 
-**Resolution status: operator unavailable this session — 1 PROPOSED item written into
-`AGENDA.md`'s Dispatchable-now section as `macrohub-locked-review-2026-07-09`, per this
-skill's non-deferral rule. Not resolved here.**
+**Resolution status: RESOLVED 2026-07-09.** Operator ratified live in a commissioner session
+(explicit confirmation, per the M6 operator-gate). Closes AGENDA's
+`macrohub-locked-review-2026-07-09` blocker. The item that was written into AGENDA.md's
+Dispatchable-now section under that name is now closeable by the dispatching commissioner.
