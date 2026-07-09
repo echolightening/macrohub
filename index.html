@@ -1615,24 +1615,112 @@ function renderHistory() {
   `).join('');
 }
 
+let _expandedMealId = null;  // which history row's edit panel is open, if any
+
 function _renderHistoryRow(meal) {
   const t = meal.total || {};
   const time = new Date(meal.logged_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
   const preview = (meal.meal_text || (meal.items || []).map(i => i.name).join(', ') || '(untitled meal)').slice(0, 60);
+  const expanded = _expandedMealId === meal.meal_id;
   return `
     <div style="border:1px solid var(--border);border-radius:var(--rs);padding:10px;margin-bottom:6px;">
       <div style="display:flex;justify-content:space-between;gap:8px;">
-        <div style="flex:1;min-width:0;">
+        <div style="flex:1;min-width:0;cursor:pointer;" onclick="toggleMealEdit('${meal.meal_id}')">
           <div style="font-size:12px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${preview}</div>
           <div style="font-size:10px;margin-top:2px;color:var(--dim);">${time} · ${t.cal ?? '—'}cal · ${t.pro ?? '—'}g pro</div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0;">
+          <button class="save-btn" style="padding:4px 8px;font-size:10px;" onclick="toggleMealEdit('${meal.meal_id}')">${expanded ? 'close' : 'edit'}</button>
           <button class="save-btn" style="padding:4px 8px;font-size:10px;" onclick="reuseMeal('${meal.meal_id}')">reuse</button>
           <button class="save-btn" style="padding:4px 8px;font-size:10px;" onclick="deleteHistoryMeal('${meal.meal_id}')">delete</button>
         </div>
       </div>
+      ${expanded ? _renderMealEditPanel(meal) : ''}
     </div>
   `;
+}
+
+// ── Per-component quantity editing + whole-meal scaling (item 28 M4) ────────
+// Item macros are stored as "current total contribution of however much of this item is in
+// the meal" (the existing app convention — see makeMealRecord). "Doubling the fries" or
+// "1 drumstick -> 2" means multiplying that item's macro fields by the entered factor,
+// relative to its current stored values — not a running/compounding multiplier. Whole-meal
+// scaling applies one factor to every item in a single action, per the plan's two distinct
+// mechanics requirement (part 1).
+
+function toggleMealEdit(mealId) {
+  _expandedMealId = (_expandedMealId === mealId) ? null : mealId;
+  renderHistory();
+}
+
+const MACRO_KEYS = ['cal', 'pro', 'carb', 'fat', 'satfat', 'fiber'];
+
+function _renderMealEditPanel(meal) {
+  const items = meal.items || [];
+  return `
+    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
+        <span style="font-size:11px;color:var(--dim);">Per-item quantity, or scale the whole meal:</span>
+        <div style="display:flex;gap:6px;">
+          <button class="save-btn" style="padding:3px 8px;font-size:10px;" onclick="scaleWholeMeal('${meal.meal_id}', 1.5)">scale 1.5x</button>
+          <button class="save-btn" style="padding:3px 8px;font-size:10px;" onclick="scaleWholeMeal('${meal.meal_id}', 2)">scale 2x</button>
+        </div>
+      </div>
+      ${items.map((it, idx) => `
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);">
+          <div style="flex:1;min-width:0;">
+            <div style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${it.name}</div>
+            <div style="font-size:9px;color:var(--dim);">${it.cal}cal · ${it.pro}g pro · ${it.carb}g carb · ${it.fat}g fat</div>
+          </div>
+          <div style="display:flex;gap:4px;flex-shrink:0;">
+            <button class="save-btn" style="padding:2px 6px;font-size:9px;" onclick="scaleItem('${meal.meal_id}', ${idx}, 0.5)">0.5x</button>
+            <button class="save-btn" style="padding:2px 6px;font-size:9px;" onclick="scaleItem('${meal.meal_id}', ${idx}, 1.5)">1.5x</button>
+            <button class="save-btn" style="padding:2px 6px;font-size:9px;" onclick="scaleItem('${meal.meal_id}', ${idx}, 2)">2x</button>
+          </div>
+        </div>
+      `).join('')}
+    </div>
+  `;
+}
+
+function _scaleItemFields(item, factor) {
+  const scaled = { ...item };
+  for (const k of MACRO_KEYS) {
+    if (typeof scaled[k] === 'number') scaled[k] = Math.round(scaled[k] * factor * 10) / 10;
+  }
+  return scaled;
+}
+
+function _recomputeMealTotal(items) {
+  const total = {};
+  for (const k of MACRO_KEYS) {
+    total[k] = Math.round(items.reduce((sum, it) => sum + (it[k] || 0), 0) * 10) / 10;
+  }
+  return total;
+}
+
+async function _applyMealEdit(mealId, newItems) {
+  const meal = _historyCache.find(m => m.meal_id === mealId);
+  if (!meal) return;
+  meal.items = newItems;
+  meal.total = _recomputeMealTotal(newItems);
+  await saveMeal(meal);  // put() — same meal_id, overwrites in place
+  renderHistory();
+  showToast('Meal updated');
+}
+
+async function scaleItem(mealId, itemIndex, factor) {
+  const meal = _historyCache.find(m => m.meal_id === mealId);
+  if (!meal) return;
+  const newItems = meal.items.map((it, i) => i === itemIndex ? _scaleItemFields(it, factor) : it);
+  await _applyMealEdit(mealId, newItems);
+}
+
+async function scaleWholeMeal(mealId, factor) {
+  const meal = _historyCache.find(m => m.meal_id === mealId);
+  if (!meal) return;
+  const newItems = meal.items.map(it => _scaleItemFields(it, factor));
+  await _applyMealEdit(mealId, newItems);
 }
 
 // Pulls a past meal's items into the current draft's textarea as a starting point — the
