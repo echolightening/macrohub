@@ -1088,6 +1088,7 @@ async function runAll() {
 
   // Reset for new estimation
   results = {};
+  _currentMealId = null;
   rawResponses = {};
   histories = {claude:[],openai:[],gemini:[],grok:[]};
   sessionActive = true;
@@ -1494,6 +1495,12 @@ async function deleteMeal(mealId) {
 // aggregation, same shape newMeal()/the email summary already reads) and persists it. Called
 // from newMeal() before state is cleared — this is the exact gap STATE.md documents ("all
 // state is in-memory per session... newMeal() clears all state").
+// Stable id for the CURRENT in-progress meal session — generated once on first successful
+// persist, reused on any retry (Fable M2 checkpoint mod 1: persist uses put() with this id,
+// so a failed email / interrupted newMeal() that re-triggers a persist OVERWRITES the same
+// record instead of inserting a duplicate). Reset only when a meal actually finishes clearing.
+let _currentMealId = null;
+
 async function persistCurrentMealIfAny() {
   const done = Object.keys(results).filter(k => results[k] && results[k].total);
   if (done.length === 0) return null;
@@ -1522,8 +1529,10 @@ async function persistCurrentMealIfAny() {
 
   const mealText = document.getElementById('meal').value || '';
   const record = makeMealRecord(mealText, items, total);
+  if (_currentMealId) record.meal_id = _currentMealId;  // reuse on retry, don't insert a 2nd row
   try {
-    await saveMeal(record);
+    await saveMeal(record);  // put() — overwrite-safe by meal_id
+    _currentMealId = record.meal_id;
     return record;
   } catch (e) {
     console.error('MealStore: failed to persist meal', e);
@@ -1539,6 +1548,7 @@ async function newMeal() {
     await sendMealEmail();
   }
   results = {};
+  _currentMealId = null;
   rawResponses = {};
   histories = {claude:[],openai:[],gemini:[],grok:[]};
   sessionActive = false;
