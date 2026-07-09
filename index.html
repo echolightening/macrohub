@@ -1398,8 +1398,142 @@ function copyNourish() {
   });
 }
 
+// ── Meal store (item 28 M2 — data model + storage layer) ───────────────────
+// IndexedDB, local-first (item 28 plan §1 Q1 — sync is a separate, not-yet-built adapter,
+// PROPOSED/gated at plan milestone M6, see MacroHub's LOCKED.md). Schema is forward-compat
+// per plan §1 Q3: optional fooddb_id/provenance/confidence/image_refs fields cost ~nothing
+// now and avoid a migration if food-DB linking or photo recognition land later — nothing is
+// built on those fields yet, they are reserved.
+const MEALSTORE_DB = 'macrohub';
+const MEALSTORE_VERSION = 1;
+const MEALSTORE_SCHEMA_VERSION = 1;
+let _mealStoreDb = null;
+
+function openMealStore() {
+  if (_mealStoreDb) return Promise.resolve(_mealStoreDb);
+  return new Promise((resolve, reject) => {
+    const req = indexedDB.open(MEALSTORE_DB, MEALSTORE_VERSION);
+    req.onupgradeneeded = (e) => {
+      const db = e.target.result;
+      if (!db.objectStoreNames.contains('meals')) {
+        const store = db.createObjectStore('meals', { keyPath: 'meal_id' });
+        store.createIndex('logged_at', 'logged_at', { unique: false });
+      }
+    };
+    req.onsuccess = (e) => { _mealStoreDb = e.target.result; resolve(_mealStoreDb); };
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+// `items`: array of {name, cal, pro, carb, fat, satfat, fiber} (today's existing per-item
+// shape, reused as-is). `total`: same shape, the meal's summed totals (5m+ ceiling values).
+function makeMealRecord(mealText, items, total) {
+  return {
+    meal_id: 'm_' + Date.now() + '_' + Math.random().toString(36).slice(2, 8),
+    logged_at: new Date().toISOString(),
+    schema_version: MEALSTORE_SCHEMA_VERSION,
+    meal_text: mealText || '',
+    items: (items || []).map(it => ({
+      name: it.name, cal: it.cal, pro: it.pro, carb: it.carb, fat: it.fat,
+      satfat: it.satfat, fiber: it.fiber,
+      // Reserved, unused fields (plan §1 Q3) — cheap forward-compat, nothing reads these yet.
+      fooddb_id: null, provenance: 'ai-estimated', confidence: null, image_refs: [],
+    })),
+    total: total || null,
+  };
+}
+
+async function saveMeal(record) {
+  const db = await openMealStore();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('meals', 'readwrite');
+    tx.objectStore('meals').put(record);
+    tx.oncomplete = () => resolve(record);
+    tx.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function getMeal(mealId) {
+  const db = await openMealStore();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('meals', 'readonly');
+    const req = tx.objectStore('meals').get(mealId);
+    req.onsuccess = () => resolve(req.result || null);
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+// Newest-first, per plan §M3 "browse by date" — the UI for this lands in M3; this is the
+// data-layer primitive it will call.
+async function listMeals() {
+  const db = await openMealStore();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('meals', 'readonly');
+    const idx = tx.objectStore('meals').index('logged_at');
+    const out = [];
+    const req = idx.openCursor(null, 'prev');
+    req.onsuccess = (e) => {
+      const cur = e.target.result;
+      if (cur) { out.push(cur.value); cur.continue(); } else { resolve(out); }
+    };
+    req.onerror = (e) => reject(e.target.error);
+  });
+}
+
+async function deleteMeal(mealId) {
+  const db = await openMealStore();
+  return new Promise((resolve, reject) => {
+    const tx = db.transaction('meals', 'readwrite');
+    tx.objectStore('meals').delete(mealId);
+    tx.oncomplete = () => resolve();
+    tx.onerror = (e) => reject(e.target.error);
+  });
+}
+
+// Builds a meal record from the CURRENT session's live state (the existing `results` 5m+
+// aggregation, same shape newMeal()/the email summary already reads) and persists it. Called
+// from newMeal() before state is cleared — this is the exact gap STATE.md documents ("all
+// state is in-memory per session... newMeal() clears all state").
+async function persistCurrentMealIfAny() {
+  const done = Object.keys(results).filter(k => results[k] && results[k].total);
+  if (done.length === 0) return null;
+  const data = done.map(k => results[k]);
+
+  // Items: the AI response with the most itemized rows, same "most complete" heuristic
+  // updateFiveM's merge path already uses elsewhere in this file (see the baseId pick before
+  // the multi-AI item merge). With only one AI having responded, this is just that AI's items.
+  const baseId = done.reduce((best, id) =>
+    (results[id].items.length > results[best].items.length ? id : best), done[0]);
+  const items = results[baseId].items || [];
+
+  // Total: the 5m+ conservative-ceiling aggregate if >=2 AIs responded (mirrors updateFiveM's
+  // `plus` calc exactly); otherwise just the single AI's own total.
+  let total;
+  if (done.length >= 2) {
+    const pluck = (key, fn) => fn(...data.map(r => r.total[key]));
+    total = {
+      cal: pluck('cal', Math.max), pro: pluck('pro', Math.min),
+      carb: pluck('carb', Math.max), fat: pluck('fat', Math.max),
+      satfat: pluck('satfat', Math.max), fiber: pluck('fiber', Math.min),
+    };
+  } else {
+    total = data[0].total;
+  }
+
+  const mealText = document.getElementById('meal').value || '';
+  const record = makeMealRecord(mealText, items, total);
+  try {
+    await saveMeal(record);
+    return record;
+  } catch (e) {
+    console.error('MealStore: failed to persist meal', e);
+    return null;
+  }
+}
+
 // ── New meal ───────────────────────────────────────────────────────────────
 async function newMeal() {
+  await persistCurrentMealIfAny();
   // Send summary email before clearing if there are results
   if (Object.keys(results).some(k => results[k] && results[k].total)) {
     await sendMealEmail();
