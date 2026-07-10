@@ -23,6 +23,23 @@ Last Fable review: 2026-07-09 @ eb6aa66 — plan authored and critiqued
 log and clears everything. Only API keys + settings persist (localStorage, `mk_*` keys).
 
 ## Progress
+**Fixes 2026-07-10 (operator-reported live, all pushed):**
+- `9e7b1d8` — Encrypt-payloads checkbox was genuinely dead (CSS `-webkit-appearance:none` meant
+  for text inputs was also zeroing out the checkbox). Already committed locally by a prior
+  session but never pushed; pushed now.
+- `e5e990f` — a meal only persisted to IndexedDB on "+ new meal", not when estimated — so syncing
+  right after logging a meal correctly (if confusingly) reported "0 meals synced". Now persists
+  at the end of `runAll()`/`sendFollowup()` too.
+- `033f9b4` — custom scale-factor input (any number, e.g. 1.75x) alongside the existing
+  0.5x/1.5x/2x presets, whole-meal and per-item.
+- `4001f10` — **sync is now fully automatic**, no button required: debounced (2.5s) on any
+  meal add/edit/delete, a 5-min visible-tab safety net, and an immediate pull on page load.
+  Found+fixed a real latent bug while wiring this up: the merge logic was purely additive with
+  no concept of deletion, so a hard-deleted meal would've been silently resurrected by the very
+  next auto-sync. Fixed via tombstones (`deleteHistoryMeal` soft-deletes, `listVisibleMeals()`
+  hides them from the UI, `listMeals()` stays raw for the sync merge to see). Verified live with
+  a mocked GitHub API across two simulated devices, not just read as a diff.
+
 **M2 DONE 2026-07-09** (`ed01e1f`): meal data model + storage layer (IndexedDB, local-first).
 `newMeal()` now persists via `persistCurrentMealIfAny()` before clearing — closes the
 "no meal persistence" gap above. Fable checkpoint ADOPT WITH MODIFICATIONS
