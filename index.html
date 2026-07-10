@@ -1185,6 +1185,12 @@ async function runAll() {
   document.getElementById('nourish-btn').style.display = 'inline-block';
   document.getElementById('followup-section').style.display = 'block';
   document.getElementById('followup-input').focus();
+
+  // Persist as soon as the estimate lands -- previously this only happened in newMeal(), so a
+  // meal "existed" on screen but wasn't actually saved (and so wasn't syncable/in History) until
+  // the user separately clicked "+ new meal". Idempotent: newMeal()'s own persist call overwrites
+  // the same record by meal_id, no duplicate.
+  await persistCurrentMealIfAny();
 }
 
 // ── Follow-up image handling ────────────────────────────────────────────────
@@ -1240,6 +1246,7 @@ async function sendFollowup() {
   await Promise.allSettled(activeIds.map(id => runAI(id, {text, photos: photoSnapshot}, true)));
 
   document.getElementById('followup-send').disabled = false;
+  await persistCurrentMealIfAny();  // re-persist so a follow-up edit is reflected in the saved record
 }
 
 // ── Email summary ──────────────────────────────────────────────────────────
