@@ -1891,9 +1891,10 @@ function _renderMealEditPanel(meal) {
     <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
         <span style="font-size:11px;color:var(--dim);">Per-item quantity, or scale the whole meal:</span>
-        <div style="display:flex;gap:6px;">
+        <div style="display:flex;gap:6px;align-items:center;">
           <button class="save-btn" style="padding:3px 8px;font-size:10px;" onclick="scaleWholeMeal('${meal.meal_id}', 1.5)">scale 1.5x</button>
           <button class="save-btn" style="padding:3px 8px;font-size:10px;" onclick="scaleWholeMeal('${meal.meal_id}', 2)">scale 2x</button>
+          ${_customScaleControl(meal.meal_id, null)}
         </div>
       </div>
       ${items.map((it, idx) => `
@@ -1902,15 +1903,50 @@ function _renderMealEditPanel(meal) {
             <div style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${it.name}</div>
             <div style="font-size:9px;color:var(--dim);">${it.cal}cal · ${it.pro}g pro · ${it.carb}g carb · ${it.fat}g fat</div>
           </div>
-          <div style="display:flex;gap:4px;flex-shrink:0;">
+          <div style="display:flex;gap:4px;flex-shrink:0;align-items:center;">
             <button class="save-btn" style="padding:2px 6px;font-size:9px;" onclick="scaleItem('${meal.meal_id}', ${idx}, 0.5)">0.5x</button>
             <button class="save-btn" style="padding:2px 6px;font-size:9px;" onclick="scaleItem('${meal.meal_id}', ${idx}, 1.5)">1.5x</button>
             <button class="save-btn" style="padding:2px 6px;font-size:9px;" onclick="scaleItem('${meal.meal_id}', ${idx}, 2)">2x</button>
+            ${_customScaleControl(meal.meal_id, idx)}
           </div>
         </div>
       `).join('')}
     </div>
   `;
+}
+
+// Custom-factor scale control: a small number input + "apply" button, alongside the 0.5x/1.5x/2x
+// presets (operator, 2026-07-10 — presets stay, but any arbitrary factor should work too, not
+// just the three canned ones). `itemIndex === null` targets the whole meal, otherwise one item.
+// Enter key applies too, not just the button click.
+function _customScaleControl(mealId, itemIndex) {
+  const inputId = `custom-scale-${mealId}-${itemIndex === null ? 'whole' : itemIndex}`;
+  const applyCall = itemIndex === null
+    ? `applyCustomScale('${mealId}', null, document.getElementById('${inputId}').value)`
+    : `applyCustomScale('${mealId}', ${itemIndex}, document.getElementById('${inputId}').value)`;
+  return `
+    <input type="number" id="${inputId}" placeholder="e.g. 1.75" step="0.05" min="0"
+      style="width:56px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--rs);
+      padding:2px 5px;color:var(--text);font-family:var(--font-mono);font-size:9px;-webkit-appearance:none;"
+      onkeydown="if(event.key==='Enter'){${applyCall};event.preventDefault();}">
+    <button class="save-btn" style="padding:2px 6px;font-size:9px;" onclick="${applyCall}">apply</button>
+  `;
+}
+
+// Shared validation + dispatch for the custom-factor control above (whole-meal when
+// itemIndex is null, single item otherwise). Rejects anything that isn't a finite positive
+// number instead of silently scaling by 0/NaN.
+async function applyCustomScale(mealId, itemIndex, rawValue) {
+  const factor = parseFloat(rawValue);
+  if (!isFinite(factor) || factor <= 0) {
+    showToast('Enter a positive number, e.g. 1.75');
+    return;
+  }
+  if (itemIndex === null) {
+    await scaleWholeMeal(mealId, factor);
+  } else {
+    await scaleItem(mealId, itemIndex, factor);
+  }
 }
 
 function _scaleItemFields(item, factor) {
