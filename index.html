@@ -43,9 +43,10 @@ header .sub { font-size: 11px; color: var(--dim); letter-spacing: 0.06em; text-t
 .settings-panel.open { display: block; }
 .key-row { margin-bottom: 12px; }
 .key-row label { display: block; font-size: 10px; color: var(--dim); letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 5px; }
-.key-row input { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--rs); padding: 10px 12px; color: var(--text); font-family: var(--font-mono); font-size: 12px; -webkit-appearance: none; }
-.key-row input:focus { outline: none; border-color: var(--border2); }
+.key-row input:not([type="checkbox"]) { width: 100%; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--rs); padding: 10px 12px; color: var(--text); font-family: var(--font-mono); font-size: 12px; -webkit-appearance: none; }
+.key-row input:not([type="checkbox"]):focus { outline: none; border-color: var(--border2); }
 .key-row input::placeholder { color: var(--dim); }
+.key-row input[type="checkbox"] { width: 16px; height: 16px; accent-color: var(--border2, #888); cursor: pointer; }
 .save-btn { background: var(--surface2); border: 1px solid var(--border2); color: var(--text); border-radius: var(--rs); padding: 10px 18px; font-family: var(--font-mono); font-size: 12px; cursor: pointer; -webkit-tap-highlight-color: transparent; }
 
 /* Text input */
