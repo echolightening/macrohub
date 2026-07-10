@@ -1569,6 +1569,13 @@ async function listMeals() {
   });
 }
 
+// UI-facing variant of listMeals() that hides soft-deleted tombstones (see deleteHistoryMeal).
+// listMeals() itself stays raw (tombstones included) because syncNow()'s merge needs to see
+// them to propagate deletions across devices -- only display code should call this one.
+async function listVisibleMeals() {
+  return (await listMeals()).filter(m => !m.deleted);
+}
+
 async function deleteMeal(mealId) {
   const db = await openMealStore();
   return new Promise((resolve, reject) => {
@@ -1621,6 +1628,7 @@ async function persistCurrentMealIfAny() {
   try {
     await saveMeal(record);  // put() — overwrite-safe by meal_id
     _currentMealId = record.meal_id;
+    scheduleAutoSync();
     return record;
   } catch (e) {
     console.error('MealStore: failed to persist meal', e);
@@ -1772,13 +1780,41 @@ async function syncNow() {
     await _githubPutFile(repo, pat, envelope, remoteFile ? remoteFile.sha : null);
 
     localStorage.setItem('mk_sync-last', new Date().toISOString());
-    _setSyncStatus(`Synced ${merged.length} meal(s) — ${new Date().toLocaleTimeString()}`);
-    if (_historyOpen) { _historyCache = await listMeals(); renderHistory(); }
+    const liveCount = merged.filter(m => !m.deleted).length;
+    _setSyncStatus(`Synced ${liveCount} meal(s) — ${new Date().toLocaleTimeString()}`);
+    if (_historyOpen) { _historyCache = await listVisibleMeals(); renderHistory(); }
   } catch (e) {
     console.error('Sync failed', e);
     _setSyncStatus('Sync failed: ' + (e.message || e));
   }
 }
+
+// ── Automatic sync (operator, 2026-07-10 — "no manual") ─────────────────────
+// syncNow() itself is unchanged (still reachable via the button, e.g. to force an immediate
+// round-trip or read the status line), but nothing should REQUIRE a manual click any more:
+// any local change that touches meal data schedules an auto-sync, debounced so rapid edits
+// (typing through a few quantity tweaks, deleting several old meals) collapse into one
+// round-trip instead of one per keystroke. Silently a no-op if sync isn't configured yet
+// (no repo/PAT saved) -- this must never nag someone who hasn't set up sync.
+let _autoSyncTimer = null;
+const AUTO_SYNC_DEBOUNCE_MS = 2500;
+
+function scheduleAutoSync() {
+  if (!getKey('sync-repo') || !getKey('sync-pat')) return;  // not configured -- stay silent
+  if (_autoSyncTimer) clearTimeout(_autoSyncTimer);
+  _autoSyncTimer = setTimeout(() => { _autoSyncTimer = null; syncNow(); }, AUTO_SYNC_DEBOUNCE_MS);
+}
+
+// Safety-net periodic sync: covers the case where nothing was edited locally but another
+// device pushed new meals (a pure edit-triggered scheme would never notice). Every 5 minutes,
+// only while the tab is actually visible/foregrounded -- no point burning API calls into a
+// backgrounded tab. Skips silently if unconfigured, same as scheduleAutoSync.
+const AUTO_SYNC_PERIODIC_MS = 5 * 60 * 1000;
+setInterval(() => {
+  if (document.visibilityState !== 'visible') return;
+  if (!getKey('sync-repo') || !getKey('sync-pat')) return;
+  syncNow();
+}, AUTO_SYNC_PERIODIC_MS);
 
 // ── History UI (item 28 M3 — browse-by-date, built on the M2 storage layer) ─
 // Data-layer primitives (saveMeal/getMeal/listMeals/deleteMeal) already exist from M2.
@@ -1793,7 +1829,7 @@ async function toggleHistory() {
   _historyOpen = !_historyOpen;
   panel.classList.toggle('open', _historyOpen);
   if (_historyOpen) {
-    _historyCache = await listMeals();  // already newest-first (M2's index cursor)
+    _historyCache = await listVisibleMeals();  // already newest-first (M2's index cursor)
     renderHistory();
   }
 }
@@ -1972,6 +2008,7 @@ async function _applyMealEdit(mealId, newItems) {
   meal.total = _recomputeMealTotal(newItems);
   meal.updated_at = new Date().toISOString();  // M7 sync merge key — this edit now wins LWW
   await saveMeal(meal);  // put() — same meal_id, overwrites in place
+  scheduleAutoSync();
   renderHistory();
   showToast('Meal updated');
 }
@@ -2003,10 +2040,24 @@ function reuseMeal(mealId) {
   showToast('Pulled into meal input — edit and estimate');
 }
 
+// Soft delete (tombstone), not deleteMeal()'s hard delete -- required for sync correctness.
+// _mergeMealSets is pure LWW-by-updated_at over the whole record with no concept of "absent
+// means deleted"; a hard-deleted local row would just get pulled back from the remote copy on
+// the very next sync (which, now that sync is automatic, would happen ~seconds later). Marking
+// `deleted:true` and bumping updated_at makes the deletion itself the newest version of the
+// record, so it wins the LWW merge and propagates like any other edit -- no merge-logic change
+// needed. Tombstones stay in IndexedDB/the synced blob forever (never actually erased); cheap
+// at personal-meal-log scale, and simpler than adding a separate GC pass.
 async function deleteHistoryMeal(mealId) {
   if (!confirm('Delete this logged meal? This cannot be undone.')) return;
-  await deleteMeal(mealId);
+  const meal = _historyCache.find(m => m.meal_id === mealId);
+  if (meal) {
+    meal.deleted = true;
+    meal.updated_at = new Date().toISOString();
+    await saveMeal(meal);
+  }
   _historyCache = _historyCache.filter(m => m.meal_id !== mealId);
+  scheduleAutoSync();
   renderHistory();
 }
 
@@ -2053,6 +2104,12 @@ Object.keys(AI_CONFIGS).forEach(id => {
   const el = document.getElementById('model-'+id);
   if (el) el.textContent = AI_CONFIGS[id].model;
 });
+
+// Pull in whatever changed on another device since last time, right on open -- the
+// edit-triggered + periodic auto-sync above only fires from THIS device's own actions, so a
+// fresh page load is the other half of "no manual": don't wait for an edit or the 5-minute
+// timer to notice a remote change made elsewhere.
+if (getKey('sync-repo') && getKey('sync-pat')) syncNow();
 </script>
 </body>
 </html>
