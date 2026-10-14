@@ -1931,7 +1931,7 @@ function _fullMacroLine(m) {
   m = m || {};
   const parts = [['cal', 'cal', ''], ['pro', 'pro', 'g '], ['carb', 'carb', 'g '], ['fat', 'fat', 'g '], ['satfat', 'sat fat', 'g '], ['fiber', 'fiber', 'g ']]
     .filter(([k]) => m[k] !== undefined && m[k] !== null)
-    .map(([k, label, unit]) => `${m[k]}${unit}${label}`);
+    .map(([k, label, unit]) => { const n = Number(m[k]); return `${isFinite(n) ? n : '—'}${unit}${label}`; });
   return parts.length ? parts.join(' · ') : '—';
 }
 
