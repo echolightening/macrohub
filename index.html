@@ -1886,7 +1886,7 @@ let _expandedMealId = null;  // which history row's edit panel is open, if any
 function _renderHistoryRow(meal) {
   const t = meal.total || {};
   const time = new Date(meal.logged_at).toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
-  const preview = (meal.meal_text || (meal.items || []).map(i => i.name).join(', ') || '(untitled meal)').slice(0, 60);
+  const preview = _escHtml((meal.meal_text || (meal.items || []).map(i => i.name).join(', ') || '(untitled meal)').slice(0, 60));
   const expanded = _expandedMealId === meal.meal_id;
   return `
     <div style="border:1px solid var(--border);border-radius:var(--rs);padding:10px;margin-bottom:6px;">
@@ -1896,7 +1896,7 @@ function _renderHistoryRow(meal) {
           <div style="font-size:10px;margin-top:2px;color:var(--dim);">${time} · ${t.cal ?? '—'}cal · ${t.pro ?? '—'}g pro</div>
         </div>
         <div style="display:flex;gap:6px;flex-shrink:0;">
-          <button class="save-btn" style="padding:4px 8px;font-size:10px;" onclick="toggleMealEdit('${meal.meal_id}')">${expanded ? 'close' : 'edit'}</button>
+          <button class="save-btn" style="padding:4px 8px;font-size:10px;" onclick="toggleMealEdit('${meal.meal_id}')">${expanded ? 'close' : 'details'}</button>
           <button class="save-btn" style="padding:4px 8px;font-size:10px;" onclick="reuseMeal('${meal.meal_id}')">reuse</button>
           <button class="save-btn" style="padding:4px 8px;font-size:10px;" onclick="deleteHistoryMeal('${meal.meal_id}')">delete</button>
         </div>
@@ -1921,9 +1921,38 @@ function toggleMealEdit(mealId) {
 
 const MACRO_KEYS = ['cal', 'pro', 'carb', 'fat', 'satfat', 'fiber'];
 
+// Meal text is free-form user input rendered via innerHTML -- escape it.
+function _escHtml(str) {
+  return String(str).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+// "142cal · 39g pro · 60g carb · 20g fat · 8g sat fat · 4g fiber", skipping absent fields.
+function _fullMacroLine(m) {
+  m = m || {};
+  const parts = [['cal', 'cal', ''], ['pro', 'pro', 'g '], ['carb', 'carb', 'g '], ['fat', 'fat', 'g '], ['satfat', 'sat fat', 'g '], ['fiber', 'fiber', 'g ']]
+    .filter(([k]) => m[k] !== undefined && m[k] !== null)
+    .map(([k, label, unit]) => `${m[k]}${unit}${label}`);
+  return parts.length ? parts.join(' · ') : '—';
+}
+
+// Full record view (operator, 2026-10-14): the collapsed row truncates the meal text to one
+// line and shows only cal/pro, so the expanded panel shows everything that was stored.
+function _renderMealDetails(meal) {
+  const logged = new Date(meal.logged_at).toLocaleString(undefined, { weekday: 'short', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+  return `
+    <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
+      <div style="font-size:10px;color:var(--dim);margin-bottom:4px;">What you entered · ${logged}</div>
+      <div style="font-size:12px;white-space:pre-wrap;word-break:break-word;line-height:1.5;">${meal.meal_text ? _escHtml(meal.meal_text) : '<span style="color:var(--dim);">(no text — photos only)</span>'}</div>
+      <div style="font-size:10px;color:var(--dim);margin:10px 0 4px;">Meal total</div>
+      <div style="font-size:11px;">${_fullMacroLine(meal.total)}</div>
+    </div>
+  `;
+}
+
 function _renderMealEditPanel(meal) {
   const items = meal.items || [];
   return `
+    ${_renderMealDetails(meal)}
     <div style="margin-top:10px;padding-top:10px;border-top:1px solid var(--border);">
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">
         <span style="font-size:11px;color:var(--dim);">Per-item quantity, or scale the whole meal:</span>
@@ -1936,8 +1965,8 @@ function _renderMealEditPanel(meal) {
       ${items.map((it, idx) => `
         <div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid var(--border);">
           <div style="flex:1;min-width:0;">
-            <div style="font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${it.name}</div>
-            <div style="font-size:9px;color:var(--dim);">${it.cal}cal · ${it.pro}g pro · ${it.carb}g carb · ${it.fat}g fat</div>
+            <div style="font-size:11px;word-break:break-word;">${_escHtml(it.name ?? '')}</div>
+            <div style="font-size:9px;color:var(--dim);">${_fullMacroLine(it)}</div>
           </div>
           <div style="display:flex;gap:4px;flex-shrink:0;align-items:center;">
             <button class="save-btn" style="padding:2px 6px;font-size:9px;" onclick="scaleItem('${meal.meal_id}', ${idx}, 0.5)">0.5x</button>
